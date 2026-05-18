@@ -34,13 +34,38 @@ O sistema foi construído para lidar com longos históricos de mensagens mistas 
 * `editor_server.py`: Roda a API Flask em segundo plano para persistir cliques e edições visuais da Dashboard.
 * `config.py`: Variáveis globais e configurações de caminhos/extensões do projeto.
 
-## ⚙️ Como Funciona
+## ⚙️ Como Instalar e Rodar
 
-1. **Exportação:** Você exporta o chat do WhatsApp (com mídias) e insere na pasta `clientes/`.
-2. **Step 1 & 2:** O menu de terminal processa e unifica os dados, transcrevendo horas de áudios em poucos minutos.
-3. **Dashboard (Step 3 / Opção 5):** O sistema abre seu navegador num ambiente local simulado. 
-4. **Revisão:** Você lê o texto, corrige as transcrições geradas se necessário, marca pontos chave com a Âncora e deleta saudações/vendas (limpeza de dados).
-5. **Resultado Final:** Todo o processamento gera um arquivo `historico_consolidado.txt` cirurgicamente limpo e pronto para virar base para geração de relatórios de clientes ou alimentação de novos IAs de contexto.
+### Pré-requisitos
+Para que a transcrição de áudios funcione, você precisará ter o **FFmpeg** instalado na sua máquina (necessário para o Whisper processar os áudios):
+- **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install ffmpeg`
+- **Windows:** Instale via `winget install ffmpeg` ou baixe do site oficial e adicione ao PATH.
+- **Mac:** `brew install ffmpeg`
+
+### Instalação
+1. Clone este repositório:
+   ```bash
+   git clone https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git
+   cd trans-crypt
+   ```
+2. (Opcional, mas recomendado) Crie um ambiente virtual Python:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # no Windows use: venv\Scripts\activate
+   ```
+3. Instale as dependências:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### Primeiro Uso
+1. Rode o arquivo principal:
+   ```bash
+   python3 main.py
+   ```
+2. O sistema detectará que não existe uma pasta base e criará a pasta `clientes/` automaticamente.
+3. Exportar dados: Pegue a exportação de um chat do WhatsApp (o arquivo `_chat.txt` + as mídias `.opus` etc) e coloque dentro de uma subpasta em `clientes/` (ex: `clientes/Maria_Silva`).
+4. Rode `python3 main.py` novamente e use o menu para iniciar o processamento!
 
 ---
-**Nota de Privacidade:** Todos os arquivos de clientes (áudios, transcrições e `.txt` crus) são ignorados via `.gitignore` por razões de sigilo e não estão incluídos neste repositório.
+**Nota de Privacidade:** O código não possui nenhuma chave de API, senha ou telemetria embutida. A transcrição do Whisper roda 100% localmente na sua máquina. Todos os arquivos de clientes (áudios, transcrições e `.txt` crus) são bloqueados via `.gitignore` por razões de sigilo absoluto.

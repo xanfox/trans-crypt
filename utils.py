@@ -4,8 +4,10 @@ import config
 def escolher_pasta_cliente():
     """Exibe um menu para escolher o diretório do cliente e retorna o caminho absoluto/relativo."""
     if not os.path.exists(config.PASTA_BASE):
-        print(f"Erro: A pasta base '{config.PASTA_BASE}' não existe.")
-        exit(1)
+        os.makedirs(config.PASTA_BASE)
+        print(f"\n⚠️  A pasta base '{config.PASTA_BASE}' foi criada agora!")
+        print("👉 Por favor, coloque as pastas exportadas do WhatsApp dentro dela e rode o programa novamente.")
+        exit(0)
 
     pastas = [
         d for d in os.listdir(config.PASTA_BASE)
