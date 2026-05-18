@@ -1,0 +1,25 @@
+# Ambientes Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+env/
+
+# Dados e Arquivos de Clientes (Sensíveis)
+clientes/
+*.mp3
+*.ogg
+*.wav
+*.opus
+*.m4a
+
+# Chaves e Configurações Pessoais
+.env
+.env.local
+.DS_Store
+
+# IDEs
+.vscode/
+.idea/
