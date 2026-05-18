@@ -1,71 +1,162 @@
 # TransCrypt 🎙️💬
 
-TransCrypt é uma suíte automatizada e interativa desenhada para **transcrição, consolidação e auditoria de conversas do WhatsApp**. 
+TransCrypt é uma suíte automatizada e interativa para **transcrição, consolidação e auditoria de conversas do WhatsApp**. 
 
-O sistema foi construído para lidar com longos históricos de mensagens mistas (texto e áudios), convertendo automaticamente arquivos de mídia de voz em texto (utilizando inteligência artificial) e unificando toda a linha do tempo da conversa em um formato legível. Mais do que apenas processamento de dados, o TransCrypt oferece uma **Dashboard Visual Interativa** de última geração para auditar e editar o histórico de forma ágil e não-destrutiva.
+O sistema foi projetado para lidar com o fluxo real de trabalho de um profissional que atende clientes via WhatsApp: receber backups exportados diretamente do aplicativo, organizá-los em pastas de clientes, transcrever os áudios automaticamente e gerar uma **interface visual de auditoria** completa — tudo localmente, sem enviar nada para a nuvem.
+
+---
 
 ## 🚀 Funcionalidades Principais
 
-* **Transcrição de Áudio de Alta Precisão (Whisper):** Extrai automaticamente mídias exportadas pelo WhatsApp (áudios `.opus`, `.ogg`, etc.) e realiza transcrição assíncrona utilizando o modelo Whisper.
-* **Processamento Paralelo (Multi-threading):** Otimiza o tempo de execução dividindo tarefas de transcrição entre os núcleos do processador (processando 10+ áudios simultaneamente).
-* **Consolidação de Histórico:** Intercala perfeitamente as mensagens de texto originais com as transcrições geradas na exata ordem cronológica do chat.
-* **Dashboard Visual Interativa (Flask Backend):**
-  * **Tema Dark Profissional:** Interface de conferência gerada em HTML/CSS nativo, focado em leitura de longos textos.
-  * **Edição Não-Destrutiva:** Edite textos e apague mensagens irrelevantes com um clique. Os dados originais do chat são preservados e as edições persistem via `JSON`.
-  * **Controle de Reprodução:** Ouça os áudios originais diretamente no navegador com velocidades variáveis (1x até 2.5x).
-  * **Sistema de Auditoria (3 Estados):** Navegue rapidamente clicando nos balões para marcar como Conferido (✅), Favorito/Âncora (✅⭐), ou Para Revisão (⚠️).
-  * **Navegação Rápida (Anchor Jump):** Pule instantaneamente entre as mensagens marcadas como Favoritas através dos botões direcionais.
-  * **Ações em Massa e Rastreio de Tempo:** Marque todo o histórico como auditado com um clique, com rastreamento integrado da data e hora da última revisão.
+### 📦 Extração e Organização Inteligente de Backups (Step 0)
+- Detecta e extrai automaticamente os arquivos `.zip` exportados do WhatsApp.
+- Reconhece e remove tags de qualificação do nome do arquivo (`Lead`, `Consulente`, `FR`, `Conversa do WhatsApp com`, etc.) para criar nomes de pasta limpos.
+- Agrupa múltiplos backups do mesmo cliente (incluindo cópias como `arquivo (1).zip`) e os processa em conjunto.
+- **Mesclagem cronológica inteligente:** quando existem dois backups do mesmo cliente (um parcial e um mais completo), o sistema combina os dois, elimina mensagens duplicadas e reconstrói o histórico em ordem cronológica correta.
+- Arquiva os `.zip` originais em `_zips_processados/` após o processamento para evitar reprocessamento acidental.
 
-## 🛠️ Tecnologias Utilizadas
+### 🎙️ Transcrição de Áudio de Alta Precisão (Step 1)
+- Converte automaticamente os áudios exportados (`.opus`, `.ogg`, `.m4a`, etc.) para texto usando o modelo **Whisper large-v3**.
+- Processamento paralelo com multi-threading para processar múltiplos áudios simultaneamente.
+- Retomável: arquivos já transcritos são pulados automaticamente.
 
-* **Python 3** (Lógica central, manipulação de arquivos)
-* **OpenAI Whisper** (Motor de Transcrição Inteligente via FFMPEG)
-* **Flask** (Servidor Backend em segundo plano para estado de UI)
-* **Vanilla JS + CSS3** (Interface Visual Leve, sem dependências Node/NPM)
-* **JSON** (Camada de persistência leve)
+### 📄 Consolidação de Histórico (Step 2)
+- Lê o `_chat.txt` unificado e intercala mensagens de texto com as transcrições geradas.
+- Gera o arquivo `historico_consolidado.txt` com toda a linha do tempo em ordem cronológica.
+- Respeita edições e deleções feitas via editor visual.
 
-## 📁 Estrutura do Projeto
+### 🖥️ Dashboard Visual Interativa (Step 3 + Editor)
+- Gera uma página HTML com tema dark profissional para conferência visual da conversa.
+- Reprodução de áudios e vídeos diretamente no navegador com controle de velocidade (1x, 1.5x, 2x, 2.5x).
+- **Edição não-destrutiva:** edite transcrições e textos de mensagens sem alterar os arquivos originais.
+- **Sistema de auditoria em 3 estados** (clique no balão para alternar):
+  - ✅ Conferido (OK)
+  - ✅⭐ Âncora / Favorito (para marcar trechos importantes)
+  - ⚠️ Para Revisão
+- Navegação rápida entre âncoras com botões direcionais.
+- Marcação em massa com "Conferir Tudo" de um clique.
+- Rastreio de auditoria: registra data/hora da primeira abertura e da última revisão.
 
-* `main.py`: Ponto de entrada do sistema. Oferece o menu interativo no terminal.
-* `step1.py`: Faz o parse dos arquivos e invoca a transcrição de mídias usando Whisper.
-* `step2.py`: Processa o arquivo `_chat.txt` original e cria a linha do tempo consolidada.
-* `step3.py`: Gera o motor visual (HTML/JS) da Dashboard baseado no estado atual.
-* `editor_server.py`: Roda a API Flask em segundo plano para persistir cliques e edições visuais da Dashboard.
-* `config.py`: Variáveis globais e configurações de caminhos/extensões do projeto.
+---
+
+## 🗂️ Estrutura de Arquivos do Projeto
+
+```
+trans-crypt/
+├── main.py              # Ponto de entrada: menu interativo no terminal
+├── step0.py             # Extração e mesclagem de zips de backup
+├── step1.py             # Transcrição de áudios via Whisper
+├── step2.py             # Consolidação do histórico em .txt
+├── step3.py             # Geração do painel visual HTML
+├── editor_server.py     # Servidor Flask para persistir edições da UI
+├── whatsapp_parser.py   # Parser/serializador do formato de chat do WhatsApp
+├── config.py            # Configurações globais (modelo, extensões, remetentes)
+├── utils.py             # Funções auxiliares (menus, limpeza de texto)
+├── requirements.txt     # Dependências Python
+└── clientes/            # Pasta de dados dos clientes (ignorada pelo git)
+    ├── _zips_processados/  # Zips arquivados após extração
+    ├── Nome do Cliente/    # Uma pasta por cliente
+    │   ├── _chat.txt            # Histórico unificado de mensagens
+    │   ├── PTT-*.opus           # Áudios exportados do WhatsApp
+    │   ├── _transcricoes/       # Transcrições geradas pelo Step 1
+    │   ├── historico_consolidado.txt  # Gerado pelo Step 2
+    │   ├── conferencia_visual.html    # Gerado pelo Step 3
+    │   └── conferencia_edits.json     # Edições não-destrutivas persistidas
+```
+
+---
+
+## 🏷️ Sistema de Tags de Clientes
+
+O nome dos arquivos `.zip` exportados do WhatsApp pode conter tags de qualificação. O Step 0 as reconhece e remove automaticamente ao criar a pasta do cliente:
+
+| Tag no nome do arquivo | Significado |
+|---|---|
+| `Conversa do WhatsApp com` | Prefixo padrão do Android |
+| `WhatsApp Chat with` | Prefixo padrão do iOS |
+| `Lead` | Contato que ainda não é cliente |
+| `Consulente` | Cliente com pelo menos 1 atendimento realizado |
+| `FR` | Lead qualificado via Free Read (leitura gratuita) |
+
+**Exemplo de renomeação:**
+
+`Conversa do WhatsApp com Lead FR Marcelo Rubem Paiva 15_03_1985.zip`
+
+→ pasta criada: `Marcelo Rubem Paiva - 15_03_1985`
+
+---
+
+## 🔄 Fluxo de Trabalho Recomendado
+
+```
+[WhatsApp] → Exportar chat com mídia → arquivo .zip
+     ↓
+Jogou o .zip na pasta clientes/
+     ↓
+[main.py] → Opção 0: Extrai, organiza e mescla
+     ↓
+[main.py] → Opção 1 ao 3: Selecione o cliente e processe
+     ↓
+[main.py] → Opção 5: Abra o editor visual no navegador
+     ↓
+Confira, edite e marque como auditado ✅
+```
+
+---
 
 ## ⚙️ Como Instalar e Rodar
 
 ### Pré-requisitos
-Para que a transcrição de áudios funcione, você precisará ter o **FFmpeg** instalado na sua máquina (necessário para o Whisper processar os áudios):
-- **Linux (Ubuntu/Debian):** `sudo apt update && sudo apt install ffmpeg`
-- **Windows:** Instale via `winget install ffmpeg` ou baixe do site oficial e adicione ao PATH.
-- **Mac:** `brew install ffmpeg`
+
+O **FFmpeg** é necessário para o Whisper processar os áudios:
+
+```bash
+# Linux (Ubuntu/Debian)
+sudo apt update && sudo apt install ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Windows
+winget install ffmpeg
+```
 
 ### Instalação
-1. Clone este repositório:
-   ```bash
-   git clone https://github.com/SEU_USUARIO/SEU_REPOSITORIO.git
-   cd trans-crypt
-   ```
-2. (Opcional, mas recomendado) Crie um ambiente virtual Python:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # no Windows use: venv\Scripts\activate
-   ```
-3. Instale as dependências:
-   ```bash
-   pip install -r requirements.txt
-   ```
 
-### Primeiro Uso
-1. Rode o arquivo principal:
-   ```bash
-   python3 main.py
-   ```
-2. O sistema detectará que não existe uma pasta base e criará a pasta `clientes/` automaticamente.
-3. Exportar dados: Pegue a exportação de um chat do WhatsApp (o arquivo `_chat.txt` + as mídias `.opus` etc) e coloque dentro de uma subpasta em `clientes/` (ex: `clientes/Maria_Silva`).
-4. Rode `python3 main.py` novamente e use o menu para iniciar o processamento!
+```bash
+# 1. Clone o repositório
+git clone https://github.com/SEU_USUARIO/trans-crypt.git
+cd trans-crypt
+
+# 2. (Recomendado) Crie um ambiente virtual
+python3 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# 3. Instale as dependências
+pip install -r requirements.txt
+```
+
+### Rodando
+
+```bash
+python3 main.py
+```
+
+No primeiro uso, a pasta `clientes/` será criada automaticamente. Basta jogar seus arquivos `.zip` dentro dela e usar o menu.
 
 ---
-**Nota de Privacidade:** O código não possui nenhuma chave de API, senha ou telemetria embutida. A transcrição do Whisper roda 100% localmente na sua máquina. Todos os arquivos de clientes (áudios, transcrições e `.txt` crus) são bloqueados via `.gitignore` por razões de sigilo absoluto.
+
+## 🛠️ Tecnologias Utilizadas
+
+| Tecnologia | Uso |
+|---|---|
+| **Python 3** | Lógica central e manipulação de arquivos |
+| **faster-whisper (large-v3)** | Motor de transcrição de áudio com IA |
+| **FFmpeg** | Conversão de formatos de áudio antes da transcrição |
+| **Flask** | Servidor backend leve para persistir edições da UI |
+| **HTML / CSS / Vanilla JS** | Interface visual sem dependências Node/NPM |
+| **JSON** | Camada de persistência leve para edições e status de auditoria |
+
+---
+
+> **Nota de Privacidade:** O TransCrypt não possui chaves de API, telemetria ou conexões externas. A transcrição roda **100% localmente** via Whisper. Todos os dados de clientes (áudios, transcrições e históricos) são bloqueados via `.gitignore`.

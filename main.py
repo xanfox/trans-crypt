@@ -1,6 +1,7 @@
 import os
 import subprocess
 import utils
+import step0
 import step1
 import step2
 import step3
@@ -9,12 +10,13 @@ def mostrar_menu():
     print("\n" + "="*35)
     print("      TRANS-CRYPT - MENU GERAL")
     print("="*35)
+    print("[0] Extrair e Mesclar Zips (Step 0)")
     print("[1] Transcrever Áudios (Step 1)")
     print("[2] Gerar Histórico Texto (Step 2)")
     print("[3] Gerar Conferência Visual (Step 3)")
-    print("[4] Rodar Todos os Passos")
+    print("[4] Rodar Passos 1 ao 3 (P/ 1 Cliente)")
     print("[5] Abrir Editor Visual (Interativo)")
-    print("[0] Sair")
+    print("[9] Sair")
     print("="*35)
 
 def main():
@@ -22,9 +24,13 @@ def main():
         mostrar_menu()
         escolha = input("\nEscolha uma opção: ").strip()
 
-        if escolha == '0':
+        if escolha == '9':
             print("Saindo...")
             break
+            
+        elif escolha == '0':
+            step0.run()
+            input("\nPressione Enter para continuar...")
             
         elif escolha in ('1', '2', '3', '4', '5'):
             # Todos os passos precisam saber qual o cliente. 
