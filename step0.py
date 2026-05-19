@@ -39,6 +39,8 @@ import re
 import shutil
 import zipfile
 from datetime import datetime
+
+import config
 from whatsapp_parser import parse_chat_whatsapp, salvar_chat_whatsapp
 
 # ================= CONFIGURAÇÃO DE PREFIXOS =================
@@ -53,6 +55,13 @@ PREFIXES = [
     "consulente ",
     "fr "
 ]
+
+# Nomes de pasta reservados pelo próprio Step 0 — nunca devem ser usados como
+# pasta de cliente para não corromper a estrutura de diretórios.
+NOMES_RESERVADOS = {
+    config.PASTA_ZIPS_PROCESSADOS,
+    config.PASTA_TEMP_ZIPS,
+}
 
 # ================= FUNÇÕES =================
 
@@ -70,7 +79,8 @@ def clean_client_name(raw_name):
                         com Lead FR Marcelo Rubem Paiva 15_03_1985 (1).zip").
 
     Returns:
-        str: Nome limpo do cliente (ex: "Marcelo Rubem Paiva - 15_03_1985").
+        str | None: Nome limpo do cliente (ex: "Marcelo Rubem Paiva - 15_03_1985"),
+                    ou None se o resultado for vazio ou colidor com nome reservado.
     """
     # Etapa 1: Remove sufixos de cópia do sistema operacional e a extensão .zip
     name = re.sub(r' \(\d+\)\.zip$', '', raw_name)
@@ -99,9 +109,15 @@ def clean_client_name(raw_name):
         if date_match:
             # Normaliza separadores para underscore e formata como "Nome - DD_MM_AAAA"
             date_str = date_match.group(0).replace('-', '_').replace('/', '_')
-            return f"{person_name} - {date_str}"
+            name = f"{person_name} - {date_str}"
 
-    return name.strip()
+    name = name.strip()
+
+    # Etapa 4: Validação — rejeita nomes vazios ou que colidam com pastas reservadas
+    if not name or name in NOMES_RESERVADOS:
+        return None
+
+    return name
 
 
 def merge_messages(mensagens_listas):
@@ -179,11 +195,11 @@ def process_zips(base_dir="clientes"):
     print(f"\nEncontrados {len(zips)} arquivos .zip. Iniciando Step 0...\n")
 
     # Pasta de destino para os zips já processados (evita reprocessamento)
-    pasta_processados = os.path.join(base_dir, "_zips_processados")
+    pasta_processados = os.path.join(base_dir, config.PASTA_ZIPS_PROCESSADOS)
     os.makedirs(pasta_processados, exist_ok=True)
 
     # Pasta temporária para extração dos zips antes de distribuir os arquivos
-    pasta_temp = os.path.join(base_dir, "_temp_zips")
+    pasta_temp = os.path.join(base_dir, config.PASTA_TEMP_ZIPS)
     os.makedirs(pasta_temp, exist_ok=True)
 
     # Agrupa os zips pelo nome limpo do cliente
@@ -191,6 +207,9 @@ def process_zips(base_dir="clientes"):
     clientes_map = {}
     for z in zips:
         nome_cliente = clean_client_name(z)
+        if nome_cliente is None:
+            print(f"  ⚠️  Ignorando '{z}': não foi possível derivar um nome de cliente válido.")
+            continue
         if nome_cliente not in clientes_map:
             clientes_map[nome_cliente] = []
         clientes_map[nome_cliente].append(z)
@@ -203,12 +222,13 @@ def process_zips(base_dir="clientes"):
 
         listas_mensagens = []
 
-        # Se já existe um _chat.txt na pasta do cliente (de um processamento anterior),
-        # ele é carregado primeiro para ser mesclado com os novos backups.
-        caminho_chat_existente = os.path.join(pasta_destino, "_chat.txt")
-        if os.path.exists(caminho_chat_existente):
+        # Caminho canônico do chat unificado na pasta do cliente.
+        # Se já existe um _chat.txt (de um processamento anterior), ele é
+        # carregado primeiro para ser mesclado com os novos backups.
+        caminho_chat_destino = os.path.join(pasta_destino, config.ARQUIVO_CHAT)
+        if os.path.exists(caminho_chat_destino):
             print(f"  ➜ Encontrado _chat.txt existente. Ele será mesclado.")
-            listas_mensagens.append(parse_chat_whatsapp(caminho_chat_existente))
+            listas_mensagens.append(parse_chat_whatsapp(caminho_chat_destino))
 
         for z_filename in zips_cliente:
             caminho_zip = os.path.join(base_dir, z_filename)
@@ -241,7 +261,7 @@ def process_zips(base_dir="clientes"):
         if listas_mensagens:
             print(f"  ➜ Mesclando e removendo duplicidades dos históricos de chat...")
             mensagens_unificadas = merge_messages(listas_mensagens)
-            salvar_chat_whatsapp(mensagens_unificadas, caminho_chat_existente)
+            salvar_chat_whatsapp(mensagens_unificadas, caminho_chat_destino)
             print(f"  ➜ {len(mensagens_unificadas)} mensagens únicas salvas no histórico consolidado.")
 
         # Limpeza: remove a pasta temporária e arquiva os zips originais

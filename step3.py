@@ -1,16 +1,34 @@
+import html as html_module
 import os
+import subprocess
 import config
 import utils
 from whatsapp_parser import parse_chat_whatsapp
 
-# ================= TRANSCRIÇÃO =================
-def buscar_transcricao(pasta, arquivo):
-    base = os.path.splitext(arquivo)[0]
-    caminho = os.path.join(pasta, base + ".txt")
-    if os.path.exists(caminho):
-        with open(caminho, encoding="utf-8", errors="ignore") as f:
-            return f.read().strip()
-    return None
+def _get_audio_duration_sec(filepath):
+    """Retorna duração em segundos de um arquivo de áudio usando ffprobe."""
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=noprint_wrappers=1:nokey=1', filepath],
+            capture_output=True, text=True, timeout=10
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return 0.0
+
+def _fmt_duracao(sec):
+    """Formata segundos como Xh YYmin ZZs."""
+    sec = int(sec)
+    h = sec // 3600
+    m = (sec % 3600) // 60
+    s = sec % 60
+    if h > 0:
+        return f"{h}h {m:02d}min"
+    elif m > 0:
+        return f"{m}min {s:02d}s"
+    else:
+        return f"{s}s"
 
 # ================= HTML =================
 def gerar_html(mensagens, pasta_cliente):
@@ -24,10 +42,51 @@ def gerar_html(mensagens, pasta_cliente):
         with open(caminho_edits, "r", encoding="utf-8") as f:
             edits = json.load(f)
 
+    # Normaliza deleted_ids para sempre trabalhar com int, independente de como foram salvos.
+    deleted_ids = {int(x) for x in edits.get("deleted_ids", [])}
+
     arquivos_midia = [
         f for f in os.listdir(pasta_cliente)
         if f.lower().endswith(config.EXTENSOES_MIDIA_HTML)
     ]
+
+    # ── Calcula estatísticas do documento (com cache para evitar ffprobe em cada toggle) ──
+    nome_cliente = os.path.basename(pasta_cliente.rstrip('/\\'))
+    stats_cache = edits.get('_stats', {})
+    if stats_cache and 'total_palavras' in stats_cache:
+        total_palavras = stats_cache['total_palavras']
+        duracao_audios_sec = stats_cache['duracao_audios_sec']
+    else:
+        total_palavras = 0
+        duracao_audios_sec = 0.0
+        _midia_set = set(arquivos_midia)
+        for m in mensagens:
+            if m['id'] in deleted_ids:
+                continue
+            conteudo = m['conteudo']
+            mid_str = str(m['id'])
+            if mid_str in edits.get('edited_texts', {}):
+                conteudo = edits['edited_texts'][mid_str]
+            arq_encontrado = next((a for a in _midia_set if a in conteudo), None)
+            if arq_encontrado:
+                trans = utils.buscar_transcricao(pasta_trans, arq_encontrado)
+                if trans:
+                    total_palavras += len(trans.split())
+                if arq_encontrado.lower().endswith(config.EXTENSOES_AUDIO):
+                    fp = os.path.join(pasta_cliente, arq_encontrado)
+                    if os.path.exists(fp):
+                        duracao_audios_sec += _get_audio_duration_sec(fp)
+            else:
+                total_palavras += len(conteudo.split())
+        # Persiste cache para evitar recálculo em regenerações automáticas
+        edits['_stats'] = {'total_palavras': total_palavras, 'duracao_audios_sec': duracao_audios_sec}
+        with open(caminho_edits, 'w', encoding='utf-8') as _f:
+            json.dump(edits, _f, indent=4, ensure_ascii=False)
+    total_palavras_fmt = f'{total_palavras:,}'.replace(',', '.')  # Separador PT-BR: 1.234
+    tempo_leitura_min = max(1, round(total_palavras / 200))
+    duracao_audios_fmt = _fmt_duracao(duracao_audios_sec)
+    duracao_audios_min = duracao_audios_sec / 60
+    tempo_total_min = max(1, round(tempo_leitura_min + duracao_audios_min))
 
     html = """<!DOCTYPE html>
 <html lang="pt-BR">
@@ -286,10 +345,10 @@ def gerar_html(mensagens, pasta_cliente):
     total_validas = 0
     total_ok = 0
     total_anchors = 0
+    total_review = 0
     for m in mensagens:
         msg_id_str = str(m["id"])
-        msg_id_int = m["id"]
-        if msg_id_int in edits.get("deleted_ids", []) or msg_id_str in edits.get("deleted_ids", []):
+        if m["id"] in deleted_ids:
             continue
         total_validas += 1
         status = edits.get("status", {}).get(msg_id_str)
@@ -297,6 +356,8 @@ def gerar_html(mensagens, pasta_cliente):
             total_ok += 1
         if status == "anchor":
             total_anchors += 1
+        if status == "review":
+            total_review += 1
 
     html += f"""
 <div class="speed-control">
@@ -311,30 +372,44 @@ def gerar_html(mensagens, pasta_cliente):
         <div style="text-align: center; font-size: 13px; color: #94a3b8; font-weight: 600; border-top: 1px solid #475569; padding-top: 6px;">
             Mensagens conferidas: <span id="msg-ok-count" style="color: #10b981;">{total_ok}</span>/<span id="msg-total-count">{total_validas}</span>
         </div>
-        <div style="text-align: center; font-size: 13px; color: #94a3b8; font-weight: 600; border-top: 1px solid #475569; padding-top: 6px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            Navegar Âncoras (<span id="msg-anchor-count">{total_anchors}</span>):
-            <button class="speed-btn" style="padding: 2px 8px; font-size: 14px;" onclick="navigateAnchor('prev')" title="Mensagem favorita anterior">↑</button>
-            <button class="speed-btn" style="padding: 2px 8px; font-size: 14px;" onclick="navigateAnchor('next')" title="Próxima mensagem favorita">↓</button>
+        <div style="text-align: center; font-size: 13px; color: #a78bfa; font-weight: 600; border-top: 1px solid #475569; padding-top: 6px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            ⭐ MSG Importantes <span id="anchor-nav-counter" style="background: rgba(139,92,246,0.15); padding: 1px 7px; border-radius: 10px;">0/<span id="msg-anchor-count">{total_anchors}</span></span>:
+            <button class="speed-btn" style="padding: 2px 8px; font-size: 14px; border: 1px solid #a78bfa;" onclick="navigateAnchor('prev')" title="Mensagem importante anterior">↑</button>
+            <button class="speed-btn" style="padding: 2px 8px; font-size: 14px; border: 1px solid #a78bfa;" onclick="navigateAnchor('next')" title="Próxima mensagem importante">↓</button>
+        </div>
+        <div style="text-align: center; font-size: 13px; color: #f59e0b; font-weight: 600; border-top: 1px solid #475569; padding-top: 6px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            ⚠️ Revisar <span id="review-nav-counter" style="background: rgba(245,158,11,0.15); padding: 1px 7px; border-radius: 10px;">0/<span id="msg-review-count">{total_review}</span></span>:
+            <button class="speed-btn" style="padding: 2px 8px; font-size: 14px; border: 1px solid #f59e0b;" onclick="navigateReview('prev')" title="Revisão anterior">↑</button>
+            <button class="speed-btn" style="padding: 2px 8px; font-size: 14px; border: 1px solid #f59e0b;" onclick="navigateReview('next')" title="Próxima revisão">↓</button>
         </div>
     </div>
 </div>
 <div class="chat">
-<h2>Conferência Visual da Conversa</h2>
+<div style="text-align: center; border-bottom: 1px solid #334155; padding-bottom: 20px; margin-bottom: 24px;">
+    <h2 style="margin: 0 0 14px 0; font-size: 22px; color: #fff;">📋 Conferência: {nome_cliente}</h2>
+    <div style="display: flex; justify-content: center; gap: 14px; flex-wrap: wrap;">
+        <span style="background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 5px 14px; border-radius: 20px; font-size: 13px; color: #10b981; font-weight: 600;">📝 {total_palavras_fmt} palavras</span>
+        <span style="background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.3); padding: 5px 14px; border-radius: 20px; font-size: 13px; color: #818cf8; font-weight: 600;">📖 ~{tempo_leitura_min} min leitura</span>
+        <span style="background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.3); padding: 5px 14px; border-radius: 20px; font-size: 13px; color: #fbbf24; font-weight: 600;">🎵 {duracao_audios_fmt} em áudios</span>
+        <span style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); padding: 5px 14px; border-radius: 20px; font-size: 13px; color: #f87171; font-weight: 600;">⏱️ ~{tempo_total_min} min de revisão</span>
+    </div>
+</div>
 """
 
     for m in mensagens:
         msg_id_str = str(m["id"])
-        msg_id_int = m["id"]
-        
-        if msg_id_int in edits.get("deleted_ids", []) or msg_id_str in edits.get("deleted_ids", []):
+
+        if m["id"] in deleted_ids:
             html += f'<div class="msg apagada">'
             html += f'<div class="meta-container" style="justify-content: center; margin:0;"><div class="meta">[Mensagem #id:{m["id"]} Apagada]</div></div>'
             html += '</div>'
             continue
-            
+
         if msg_id_str in edits.get("edited_texts", {}):
+            m = dict(m)  # Cópia rasa para não mutar a lista original
             m["conteudo"] = edits["edited_texts"][msg_id_str]
 
+        autor_seguro = html_module.escape(m["autor"])
         lado = "dir" if any(x in m["autor"] for x in config.REMETENTES_DIREITA) else "esq"
         
         status_msg = edits.get("status", {}).get(msg_id_str, "none")
@@ -361,15 +436,16 @@ def gerar_html(mensagens, pasta_cliente):
                 break
                 
         tipo_edicao = 'transcricao' if arquivo_encontrado else 'texto'
-        arq_midia_js = arquivo_encontrado if arquivo_encontrado else ''
+        # Escapa aspas simples no nome do arquivo para não quebrar o atributo onclick JS
+        arq_midia_js = arquivo_encontrado.replace("'", "\\'") if arquivo_encontrado else ''
 
         html += '<div class="meta-container">'
-        html += f'<div class="meta">{m["data"]} {m["hora"]} — {m["autor"]}<span class="status-indicator" id="status-icon-{m["id"]}">{icon_status}</span></div>'
+        html += f'<div class="meta">{m["data"]} {m["hora"]} — {autor_seguro}<span class="status-indicator" id="status-icon-{m["id"]}">{icon_status}</span></div>'
         html += f'<div class="id" onclick="showMenu(event, {m["id"]}, \'{arq_midia_js}\', \'{tipo_edicao}\')" title="Clique para editar/apagar">#id:{m["id"]} ⚙️</div>'
         html += '</div>'
 
         if arquivo_encontrado:
-            trans = buscar_transcricao(pasta_trans, arquivo_encontrado)
+            trans = utils.buscar_transcricao(pasta_trans, arquivo_encontrado)
             html += '<div class="media">'
 
             arq = arquivo_encontrado.lower()
@@ -381,12 +457,13 @@ def gerar_html(mensagens, pasta_cliente):
                 html += f'<img src="{arquivo_encontrado}">'
 
             if trans:
-                trans_html = trans.replace('\\n', '<br>')
+                # Usa '\n' (newline real) e escapa o conteúdo antes de inserir no HTML
+                trans_html = html_module.escape(trans).replace('\n', '<br>')
                 html += f'<div class="transc"><b>Transcrição</b><span id="text-{m["id"]}">{trans_html}</span></div>'
 
             html += '</div>'
         else:
-            conteudo_html = conteudo.replace('\\n', '<br>')
+            conteudo_html = html_module.escape(conteudo).replace('\n', '<br>')
             html += f'<div class="msg-content" id="content-{m["id"]}">{conteudo_html}</div>'
 
         html += '</div>'
@@ -395,9 +472,12 @@ def gerar_html(mensagens, pasta_cliente):
     last_revised = edits.get("last_revised", "Nunca")
 
     html += f"""
-<div style="text-align: center; margin: 40px 0; padding: 20px; background: rgba(30, 41, 59, 0.5); border-radius: 12px; border: 1px solid #475569;">
-    <button onclick="markAllAsChecked()" style="background: #10b981; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">Marcar Tudo Como Conferido ✅</button>
-    <div style="margin-top: 15px; color: #94a3b8; font-size: 14px;">
+<div style="text-align: center; margin: 40px 0; padding: 20px; background: rgba(30, 41, 59, 0.5); border-radius: 12px; border: 1px solid #475569; display: flex; flex-direction: column; align-items: center; gap: 14px;">
+    <div style="display: flex; gap: 16px; flex-wrap: wrap; justify-content: center;">
+        <button onclick="markAllAsChecked()" style="background: #10b981; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">Marcar Pendentes Como Conferido ✅</button>
+        <button onclick="resetAllStatus()" style="background: #334155; color: #f87171; border: 1px solid #f87171; padding: 12px 24px; border-radius: 8px; font-weight: bold; font-size: 16px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">🔄 Zerar Todos os Status</button>
+    </div>
+    <div style="color: #94a3b8; font-size: 14px;">
         Última abertura: {last_opened} &nbsp;|&nbsp; Última revisão: {last_revised}
     </div>
 </div>
@@ -435,8 +515,10 @@ def gerar_html(mensagens, pasta_cliente):
         
         const countSpan = document.getElementById('msg-ok-count');
         const anchorSpan = document.getElementById('msg-anchor-count');
+        const reviewCountSpan = document.getElementById('msg-review-count');
         let count = parseInt(countSpan.innerText);
         let anchorCount = parseInt(anchorSpan.innerText);
+        let reviewCount = reviewCountSpan ? parseInt(reviewCountSpan.innerText) : 0;
         
         let newStatus = 'none';
         if (currentStatus === 'none') {
@@ -456,16 +538,32 @@ def gerar_html(mensagens, pasta_cliente):
             msgDiv.classList.remove('status-anchor');
             msgDiv.classList.add('status-review');
             iconSpan.innerText = ' ⚠️ Revisar';
-            count--;
-            anchorCount--;
+            count = Math.max(0, count - 1);
+            anchorCount = Math.max(0, anchorCount - 1);
+            reviewCount++;
+            _reviewIndex = -1;
         } else {
             newStatus = 'none';
             msgDiv.classList.remove('status-ok', 'status-review', 'status-anchor');
             iconSpan.innerText = '';
+            reviewCount = Math.max(0, reviewCount - 1);
+            _reviewIndex = -1;
         }
         
         countSpan.innerText = count;
         anchorSpan.innerText = anchorCount;
+        if (reviewCountSpan) {
+            reviewCountSpan.innerText = reviewCount;
+            const reviewWrap = document.getElementById('review-nav-counter');
+            if (reviewWrap) reviewWrap.innerHTML = '0/<span id="msg-review-count">' + reviewCount + '</span>';
+        }
+        // Atualiza painel de âncoras em tempo real
+        const anchorWrap = document.getElementById('anchor-nav-counter');
+        const anchorTotal = document.getElementById('msg-anchor-count');
+        if (anchorWrap && anchorTotal) {
+            anchorWrap.innerHTML = '0/<span id="msg-anchor-count">' + anchorCount + '</span>';
+            _anchorIndex = -1;
+        }
         
         fetch(getApiUrl() + '/api/toggle_status', {
             method: 'POST',
@@ -549,38 +647,85 @@ def gerar_html(mensagens, pasta_cliente):
         container.appendChild(btn);
     }
     
+    let _anchorIndex = -1;
     function navigateAnchor(direction) {
         const anchors = Array.from(document.querySelectorAll('.status-anchor'));
-        if (anchors.length === 0) {
-            alert('Nenhuma mensagem favoritada (âncora) encontrada.');
+        const total = anchors.length;
+        if (total === 0) {
+            alert('Nenhuma mensagem importante (âncora) encontrada.');
             return;
         }
-        
-        let target = null;
-        const threshold = window.innerHeight / 2;
-        
+
         if (direction === 'next') {
-            target = anchors.find(el => el.getBoundingClientRect().top > threshold + 50);
-            if (!target) target = anchors[0]; // Dá a volta para o começo
+            _anchorIndex = (_anchorIndex + 1) % total;
         } else {
-            const reversed = [...anchors].reverse();
-            target = reversed.find(el => el.getBoundingClientRect().top < threshold - 50);
-            if (!target) target = anchors[0]; // Se não houver nada pra cima, vai para a primeira
+            _anchorIndex = (_anchorIndex - 1 + total) % total;
         }
-        
-        if (target) {
-            target.scrollIntoView({behavior: 'smooth', block: 'center'});
-            target.style.transition = 'box-shadow 0.3s ease';
-            target.style.boxShadow = '0 0 15px 5px rgba(139, 92, 246, 0.5)';
-            setTimeout(() => { target.style.boxShadow = 'none'; }, 1500);
+
+        const target = anchors[_anchorIndex];
+        target.scrollIntoView({behavior: 'smooth', block: 'center'});
+        target.style.transition = 'box-shadow 0.3s ease';
+        target.style.boxShadow = '0 0 15px 5px rgba(139, 92, 246, 0.6)';
+        setTimeout(() => { target.style.boxShadow = 'none'; }, 1500);
+
+        // Atualiza contador X/N
+        const counterWrap = document.getElementById('anchor-nav-counter');
+        const totalSpan = document.getElementById('msg-anchor-count');
+        if (counterWrap && totalSpan) {
+            counterWrap.innerHTML = (_anchorIndex + 1) + '/<span id="msg-anchor-count">' + total + '</span>';
         }
+    }
+
+    let _reviewIndex = -1;
+    function navigateReview(direction) {
+        const reviews = Array.from(document.querySelectorAll('.status-review'));
+        const total = reviews.length;
+        if (total === 0) {
+            alert('Nenhuma mensagem marcada para revisão.');
+            return;
+        }
+
+        if (direction === 'next') {
+            _reviewIndex = (_reviewIndex + 1) % total;
+        } else {
+            _reviewIndex = (_reviewIndex - 1 + total) % total;
+        }
+
+        const target = reviews[_reviewIndex];
+        target.scrollIntoView({behavior: 'smooth', block: 'center'});
+        target.style.transition = 'box-shadow 0.3s ease';
+        target.style.boxShadow = '0 0 15px 5px rgba(245, 158, 11, 0.6)';
+        setTimeout(() => { target.style.boxShadow = 'none'; }, 1500);
+
+        // Atualiza contador X/N
+        const counterSpan = document.getElementById('review-nav-counter');
+        const totalSpan = document.getElementById('msg-review-count');
+        if (counterSpan && totalSpan) {
+            counterSpan.innerHTML = `${_reviewIndex + 1}/<span id="msg-review-count">${total}</span>`;
+        }
+    }
+    
+    function resetAllStatus() {
+        if (!confirm("Isso vai apagar TODOS os status (OK, Ancoras e Revisar) de todas as mensagens. Tem certeza?")) return;
+        if (!confirm("Segunda confirmacao: todos os status serao perdidos e a conferencia voltara ao zero. Continuar?")) return;
+
+        fetch(getApiUrl() + '/api/reset_all_status', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        }).then(function(res) {
+            if (!res.ok) { alert('Erro: reinicie o Servidor de Edicao (CTRL+C e rode novamente).'); return; }
+            return res.json();
+        }).then(function(data) {
+            if (data && data.success) location.reload();
+        }).catch(function(e) { alert('Erro de conexao. O Servidor de Edicao esta rodando?'); });
     }
     
     function markAllAsChecked() {
         if (!confirm("Tem certeza que deseja marcar TODAS as mensagens pendentes como Conferidas (OK)?")) return;
         
-        // Coleta todos os IDs que ainda não estão conferidos nem são âncoras
-        const msgs = document.querySelectorAll('.msg:not(.apagada):not(.status-ok):not(.status-anchor)');
+        // Coleta apenas IDs sem nenhum status atribuído (não ok, não âncora, não revisar)
+        const msgs = document.querySelectorAll('.msg:not(.apagada):not(.status-ok):not(.status-anchor):not(.status-review)');
         const ids = Array.from(msgs).map(el => parseInt(el.getAttribute('data-id')));
         
         if (ids.length === 0) {
@@ -607,7 +752,7 @@ def gerar_html(mensagens, pasta_cliente):
     with open(saida, "w", encoding="utf-8") as f:
         f.write(html)
 
-    print(f"\\n✔ Conferência criada com sucesso: {saida}")
+    print(f"\n✔ Conferência criada com sucesso: {saida}")
 
 # ================= MAIN =================
 def run(pasta_cliente=None, auto=False):

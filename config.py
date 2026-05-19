@@ -1,11 +1,16 @@
 import os
 
-import os
-
 # ================= CONFIG =================
 PASTA_BASE = "./clientes"
 PASTA_TRANSCRICOES = "_transcricoes"
 ARQUIVO_HISTORICO = "historico_consolidado.txt"
+
+# Nome canônico do arquivo de chat gerado pelo Step 0 e consumido pelos Steps 2 e 3.
+ARQUIVO_CHAT = "_chat.txt"
+
+# Nomes das pastas de trabalho internas usadas pelo Step 0 (evita hardcoding espalhado).
+PASTA_ZIPS_PROCESSADOS = "_zips_processados"
+PASTA_TEMP_ZIPS = "_temp_zips"
 
 # Extensões de áudio suportadas para transcrição
 EXTENSOES_AUDIO = (".opus", ".ogg", ".m4a", ".mp4", ".wav", ".mp3")
@@ -18,7 +23,7 @@ EXTENSOES_MIDIA_HTML = EXTENSOES_AUDIO + (".jpg", ".jpeg", ".png")
 # Para a maior acurácia possível, recomendamos 'large-v3' (exige mais processamento)
 MODELO_WHISPER = "large-v3"
 
-# O 'beam_size' dita o quanto a IA "pensa" nas palavras. 
+# O 'beam_size' dita o quanto a IA "pensa" nas palavras.
 # 1 é rápido e burro, 5 é o padrão ouro de qualidade, valores maiores (ex: 7) aumentam muito o tempo para pouco ganho.
 WHISPER_BEAM_SIZE = 5
 

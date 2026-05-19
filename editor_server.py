@@ -57,6 +57,7 @@ def setup_routes():
             with open(caminho, "w", encoding="utf-8") as f:
                 f.write(novo_texto)
             edits = load_edits()
+            edits.pop('_stats', None)  # Invalida cache de stats (conteúdo mudou)
             edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
             save_edits(edits)
             rebuild_files()
@@ -74,6 +75,7 @@ def setup_routes():
             
         edits = load_edits()
         edits['edited_texts'][msg_id] = novo_texto
+        edits.pop('_stats', None)  # Invalida cache de stats (conteúdo mudou)
         edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
         save_edits(edits)
         rebuild_files()
@@ -90,8 +92,11 @@ def setup_routes():
             return jsonify({"error": "Faltam parâmetros"}), 400
             
         edits = load_edits()
-        if msg_id not in edits['deleted_ids']:
-            edits['deleted_ids'].append(msg_id)
+        edits.pop('_stats', None)  # Invalida cache de stats (mensagem removida)
+        # Normaliza: sempre armazena IDs como int para consistência entre Python e JSON
+        deleted_int = int(msg_id)
+        if deleted_int not in edits['deleted_ids']:
+            edits['deleted_ids'].append(deleted_int)
         edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
         save_edits(edits)
         
@@ -116,8 +121,9 @@ def setup_routes():
         msg_id = str(data.get('id'))
         status = data.get('status')
         
-        if not msg_id or not status:
-            return jsonify({"error": "Faltam parâmetros"}), 400
+        VALID_STATUS = {'ok', 'anchor', 'review', 'none'}
+        if not msg_id or not status or status not in VALID_STATUS:
+            return jsonify({"error": "Parâmetros inválidos"}), 400
             
         edits = load_edits()
         if status == 'none':
@@ -144,6 +150,15 @@ def setup_routes():
         step3.run(app.config['CLIENT_FOLDER'], auto=True)
         return jsonify({"success": True})
 
+    @app.route('/api/reset_all_status', methods=['POST'])
+    def reset_all_status():
+        edits = load_edits()
+        edits['status'] = {}
+        edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        save_edits(edits)
+        step3.run(app.config['CLIENT_FOLDER'], auto=True)
+        return jsonify({"success": True})
+
     @app.route('/api/track_open', methods=['POST'])
     def track_open():
         edits = load_edits()
@@ -163,10 +178,15 @@ def start_server(pasta_cliente):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             return s.connect_ex(('127.0.0.1', port)) == 0
 
-    port = 5000
-    if is_port_in_use(port):
-        print(f"⚠️ A porta {port} já está em uso. Tentando a porta 5001...")
-        port = 5001
+    port = None
+    for candidate in range(5000, 5011):
+        if not is_port_in_use(candidate):
+            port = candidate
+            break
+
+    if port is None:
+        print("❌ ERRO: Nenhuma porta disponível entre 5000 e 5010. Feche outros servidores e tente novamente.")
+        return
 
     print(f"\n===========================================")
     print(f"🚀 EDITOR VISUAL INICIADO")

@@ -4,43 +4,37 @@ import config
 import utils
 from whatsapp_parser import parse_chat_whatsapp
 
-# ================= TRANSCRIÇÃO =================
-def buscar_transcricao(pasta, arquivo):
-    base = os.path.splitext(arquivo)[0]
-    caminho = os.path.join(pasta, base + ".txt")
-    if os.path.exists(caminho):
-        with open(caminho, encoding="utf-8", errors="ignore") as f:
-            return f.read().strip()
-    return None
-
 # ================= SAÍDA =================
 def gerar_historico(pasta_cliente, mensagens_chat):
     caminho_saida = os.path.join(pasta_cliente, config.ARQUIVO_HISTORICO)
     caminho_edits = os.path.join(pasta_cliente, "conferencia_edits.json")
     pasta_trans = os.path.join(pasta_cliente, config.PASTA_TRANSCRICOES)
-    
+
     arquivos_midia = [
         f for f in os.listdir(pasta_cliente)
         if f.lower().endswith(config.EXTENSOES_MIDIA_HTML)
     ]
-    
+
     edits = {"deleted_ids": [], "edited_texts": {}}
     if os.path.exists(caminho_edits):
         with open(caminho_edits, "r", encoding="utf-8") as f:
             edits = json.load(f)
 
+    # Normaliza deleted_ids para sempre trabalhar com int, independente de como foram salvos.
+    deleted_ids = {int(x) for x in edits.get("deleted_ids", [])}
+
     with open(caminho_saida, "w", encoding="utf-8") as f:
         f.write("===== HISTÓRICO CONSOLIDADO =====\n\n")
 
         for m in mensagens_chat:
-            msg_id_str = str(m["id"])
-            msg_id_int = m["id"]
-            
+            msg_id = m["id"]
+            msg_id_str = str(msg_id)
+
             # 1. Mensagens deletadas
-            if msg_id_int in edits.get("deleted_ids", []) or msg_id_str in edits.get("deleted_ids", []):
-                f.write(f"{m['data']} {m['hora']} — {m['autor']} — #id:{m['id']}\n[Mensagem Apagada pelo Revisor]\n\n")
+            if msg_id in deleted_ids:
+                f.write(f"{m['data']} {m['hora']} — {m['autor']} — #id:{msg_id}\n[Mensagem Apagada pelo Revisor]\n\n")
                 continue
-                
+
             # 2. Aplica edição de texto
             conteudo = m["conteudo"]
             if msg_id_str in edits.get("edited_texts", {}):
@@ -52,11 +46,11 @@ def gerar_historico(pasta_cliente, mensagens_chat):
                 if arq in conteudo:
                     arquivo_encontrado = arq
                     break
-                    
-            f.write(f"{m['data']} {m['hora']} — {m['autor']} — #id:{m['id']}\n")
-            
+
+            f.write(f"{m['data']} {m['hora']} — {m['autor']} — #id:{msg_id}\n")
+
             if arquivo_encontrado:
-                trans = buscar_transcricao(pasta_trans, arquivo_encontrado)
+                trans = utils.buscar_transcricao(pasta_trans, arquivo_encontrado)
                 if trans:
                     f.write(f"[MÍDIA: {arquivo_encontrado}]\n")
                     f.write(f"--- TRANSCRIÇÃO ---\n{trans}\n-------------------\n\n")
@@ -71,7 +65,7 @@ def gerar_historico(pasta_cliente, mensagens_chat):
 def run(pasta_cliente=None, auto=False):
     if not pasta_cliente:
         pasta_cliente = utils.escolher_pasta_cliente()
-        
+
     chat = utils.escolher_chat_txt(pasta_cliente, auto=auto)
 
     print("\n📖 Processando chat...")
