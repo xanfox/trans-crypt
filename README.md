@@ -19,9 +19,28 @@ O sistema foi projetado para o fluxo real de trabalho de um profissional que ate
 ### 🎙️ Step 1 — Transcrição de Áudio de Alta Precisão
 
 - Converte automaticamente os áudios exportados (`.opus`, `.ogg`, `.m4a`, `.mp4`, `.wav`, `.mp3`) para texto usando o modelo **Whisper large-v3**.
-- Processamento paralelo com multi-threading para processar múltiplos áudios simultaneamente.
+- **Paralelismo otimizado:** `N` arquivos são transcritos simultaneamente, cada instância do modelo recebe `cpu_count / N` threads — garantindo **100% de utilização** dos núcleos disponíveis.
+- **I/O em paralelo com inferência:** `num_workers=2` pré-carrega e decodifica o próximo áudio enquanto o modelo ainda está processando o atual.
 - Retomável: arquivos já transcritos são pulados automaticamente, protegendo o trabalho feito.
-- Configurável via `config.py`: tamanho do modelo e `beam_size` para ajuste fino entre velocidade e qualidade.
+- Configurável via `config.py`: modelo, `beam_size`, `initial_prompt` e nível de paralelismo.
+
+#### Estratégia Anti-Alucinação (4 camadas)
+
+O Whisper pode gerar texto onde não há fala: "Obrigado." em silêncio, loops de repetição, continuações inventadas entre segmentos. O TransCrypt combina 4 defesas simultâneas:
+
+| Parâmetro | Valor | Proteção |
+|---|---|---|
+| `condition_on_previous_text` | `False` | Elimina continuações inventadas — o modelo não "completa" frases inexistentes entre mensagens curtas |
+| `hallucination_silence_threshold` | `2 s` | Suprime qualquer texto gerado sobre segmentos com mais de 2 s de silêncio |
+| `compression_ratio_threshold` | `2.4` | Detecta e descarta loops de repetição (padrão característico de alucinação) |
+| `vad_filter` | `True` | Remove regiões de silêncio antes de processar, reduzindo janelas onde alucinações ocorrem |
+
+#### `initial_prompt` — Ancoragem de Vocabulário
+
+O parâmetro `WHISPER_INITIAL_PROMPT` em `config.py` permite orientar o modelo com o vocabulário do seu domínio antes de cada transcrição. O Whisper trata esse texto como "transcrição prévia" — termos mencionados no prompt são favorecidos durante a decodificação, reduzindo erros em palavras técnicas ou específicas do negócio.
+
+> **Formato correto:** texto conversacional natural, não lista de palavras-chave. O modelo foi treinado em transcrições reais; texto em formato de fala ancora melhor o vocabulário do que um glossário.
+
 
 ### 📄 Step 2 — Consolidação de Histórico
 
@@ -222,10 +241,12 @@ No primeiro uso, a pasta `clientes/` é criada automaticamente. Basta depositar 
 
 | Parâmetro | Padrão | Descrição |
 |---|---|---|
-| `MODELO_WHISPER` | `large-v3` | Modelo Whisper (`tiny`, `base`, `small`, `medium`, `large-v3`) |
-| `WHISPER_BEAM_SIZE` | `5` | Qualidade de busca (1=rápido, 5=padrão, 7+=diminishing returns) |
-| `PROCESSAMENTO_PARALELO_ARQUIVOS` | `cpu_count // 2` | Threads simultâneas para transcrição |
-| `REMETENTES_DIREITA` | `("Alex", "VIP", "Xan", ...)` | Nomes que aparecem à direita no chat visual |
+| `MODELO_WHISPER` | `large-v3` | Modelo Whisper (`tiny`, `small`, `medium`, `large-v3`, `large-v3-turbo`) |
+| `WHISPER_BEAM_SIZE` | `5` | Qualidade de busca (1=rápido, 5=padrão ouro, 7+=ganho mínimo) |
+| `WHISPER_INITIAL_PROMPT` | `""` | Prompt de domínio em linguagem natural para ancorar vocabulário específico |
+| `WHISPER_NUM_WORKERS` | `2` | Workers de pré-processamento de áudio (I/O em paralelo com a inferência) |
+| `PROCESSAMENTO_PARALELO_ARQUIVOS` | `cpu_count // 2` | Instâncias simultâneas do modelo (cada uma recebe `cpu_count / N` threads) |
+| `REMETENTES_DIREITA` | `("Alex", "VIP", "Xan", ...)` | Nomes que aparecem alinhados à direita no chat visual |
 | `EXTENSOES_AUDIO` | `.opus .ogg .m4a .mp4 .wav .mp3` | Formatos suportados para transcrição |
 
 ---
