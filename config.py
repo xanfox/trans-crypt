@@ -31,10 +31,16 @@ MODELO_WHISPER = "large-v3"
 WHISPER_BEAM_SIZE = 5
 
 # Prompt inicial para orientar o vocabulário antes de cada transcrição.
-# Preencha com termos do seu domínio para reduzir erros em palavras específicas
-# e diminuir alucinações ao dar contexto semântico ao modelo.
+# O Whisper trata este texto como "transcrição prévia" — escreva em linguagem
+# natural e conversacional, não como lista de palavras-chave. Isso ancora o
+# vocabulário do domínio sem confundir o modelo com estrutura de glossário.
 # Deixe "" para desativar.
-WHISPER_INITIAL_PROMPT = ""
+WHISPER_INITIAL_PROMPT = (
+    "Essa é uma conversa de atendimento espiritual e desenvolvimento pessoal. "
+    "Os temas abordados incluem tarô, chakras, espiritualidade e autoconhecimento. "
+    "Também falamos sobre coaching, metas, planejamento e finanças pessoais. "
+    "Outros temas recorrentes são psicologia, filosofia e aperfeiçoamento pessoal."
+)
 
 # Número de workers para pré-processamento paralelo de áudio.
 # Permite que o próximo arquivo seja carregado/decodificado enquanto o atual é transcrito.
