@@ -19,13 +19,26 @@ EXTENSOES_AUDIO = (".opus", ".ogg", ".m4a", ".mp4", ".wav", ".mp3")
 EXTENSOES_MIDIA_HTML = EXTENSOES_AUDIO + (".jpg", ".jpeg", ".png")
 
 # Configuração do modelo do Whisper
-# Modelos: 'tiny', 'base', 'small', 'medium', 'large-v2', 'large-v3'
-# Para a maior acurácia possível, recomendamos 'large-v3' (exige mais processamento)
+# Modelos disponíveis (do mais lento/preciso ao mais rápido):
+#   'large-v3'       → máxima acurácia, mais lento
+#   'large-v3-turbo' → ~6-8x mais rápido que large-v3, perda mínima de qualidade
+#   'medium'         → boa acurácia, moderado
+#   'small'          → rápido, aceitável para áudios limpos
 MODELO_WHISPER = "large-v3"
 
 # O 'beam_size' dita o quanto a IA "pensa" nas palavras.
-# 1 é rápido e burro, 5 é o padrão ouro de qualidade, valores maiores (ex: 7) aumentam muito o tempo para pouco ganho.
+# 1 = rápido e simples | 5 = padrão ouro de qualidade | 7+ = ganho mínimo, custo alto
 WHISPER_BEAM_SIZE = 5
+
+# Prompt inicial para orientar o vocabulário antes de cada transcrição.
+# Preencha com termos do seu domínio para reduzir erros em palavras específicas
+# e diminuir alucinações ao dar contexto semântico ao modelo.
+# Deixe "" para desativar.
+WHISPER_INITIAL_PROMPT = ""
+
+# Número de workers para pré-processamento paralelo de áudio.
+# Permite que o próximo arquivo seja carregado/decodificado enquanto o atual é transcrito.
+WHISPER_NUM_WORKERS = 2
 
 # Nomes ou identificadores para as mensagens que ficarão alinhadas à direita no HTML
 REMETENTES_DIREITA = ("Alex", "VIP", "Xan", "7caballa")
@@ -33,6 +46,7 @@ REMETENTES_DIREITA = ("Alex", "VIP", "Xan", "7caballa")
 # ================= PERFORMANCE =================
 # Número de arquivos de áudio processados SIMULTANEAMENTE.
 # Usa metade dos núcleos do seu processador para não travar o computador inteiro.
+# Cada instância paralela recebe (cpu_count / paralelo) threads — 100% de aproveitamento.
 PROCESSAMENTO_PARALELO_ARQUIVOS = max(1, (os.cpu_count() or 4) // 2)
 
 # Lixo unicode para limpar nas leituras

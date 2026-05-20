@@ -20,12 +20,18 @@ def _get_whisper():
     if _whisper_model is None:
         from faster_whisper import WhisperModel
         print("=== ETAPA 1 | Inicializando Whisper (isso pode levar alguns segundos) ===")
+        # BUG CORRIGIDO: a fórmula anterior dividia por 2 novamente, deixando
+        # metade dos núcleos ociosos. Agora cada instância paralela recebe
+        # sua fatia correta de threads (cpu_count / n_paralelo).
+        n_threads = max(2, (os.cpu_count() or 4) // config.PROCESSAMENTO_PARALELO_ARQUIVOS)
         _whisper_model = WhisperModel(
             config.MODELO_WHISPER,
             device="cpu",
             compute_type="int8",
-            cpu_threads=max(1, (os.cpu_count() or 4) // config.PROCESSAMENTO_PARALELO_ARQUIVOS)
+            cpu_threads=n_threads,
+            num_workers=config.WHISPER_NUM_WORKERS,  # pré-carrega áudio enquanto computa
         )
+        print(f"    └─ {config.MODELO_WHISPER} | int8 | {n_threads} threads/instância | {config.PROCESSAMENTO_PARALELO_ARQUIVOS} em paralelo")
     return _whisper_model
 
 
@@ -73,20 +79,29 @@ def transcrever_audio(caminho_audio):
 
     whisper = _get_whisper()
 
-    try:
-        segments, _ = whisper.transcribe(
-            wav,
-            language="pt",
-            beam_size=config.WHISPER_BEAM_SIZE,
-            best_of=5,
-            temperature=0.0,
-            vad_filter=True,
-            condition_on_previous_text=True,
-            no_speech_threshold=0.4,
-            log_prob_threshold=-0.5,
-            compression_ratio_threshold=2.4
-        )
+    # Monta kwargs opcionais
+    kwargs = {
+        "language": "pt",
+        "beam_size": config.WHISPER_BEAM_SIZE,
+        "best_of": 1,                      # best_of > 1 só ajuda com temperature > 0;
+                                            # evita passes extras desnecessários no fallback
+        "temperature": 0.0,                # beam search determinista: máxima consistência
+        "vad_filter": True,                # remove segmentos de silêncio antes de transcrever
+        "condition_on_previous_text": False, # False = sem alucinações de continuidade
+                                             # útil para áudios longos; contra-producente
+                                             # para mensagens curtas do WhatsApp
+        "no_speech_threshold": 0.4,        # descarta segmentos com baixa probabilidade de fala
+        "log_prob_threshold": -0.5,        # descarta segmentos com baixa confiança geral
+        "compression_ratio_threshold": 2.4, # detecta repetições (sinal de alucinação)
+        "hallucination_silence_threshold": 2, # suprime texto gerado sobre silêncio (> 2s)
+    }
 
+    # Adiciona initial_prompt apenas se configurado (deixar vazio desativa)
+    if config.WHISPER_INITIAL_PROMPT:
+        kwargs["initial_prompt"] = config.WHISPER_INITIAL_PROMPT
+
+    try:
+        segments, _ = whisper.transcribe(wav, **kwargs)
         texto = " ".join(s.text.strip() for s in segments)
         return texto if texto else "[Áudio sem fala detectável]"
 
