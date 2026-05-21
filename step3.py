@@ -39,8 +39,12 @@ def gerar_html(mensagens, pasta_cliente):
     caminho_edits = os.path.join(pasta_cliente, "conferencia_edits.json")
     edits = {"deleted_ids": [], "edited_texts": {}}
     if os.path.exists(caminho_edits):
-        with open(caminho_edits, "r", encoding="utf-8") as f:
-            edits = json.load(f)
+        try:
+            with open(caminho_edits, "r", encoding="utf-8") as f:
+                edits = json.load(f)
+        except Exception as e:
+            print(f"\\n⚠️ AVISO: {caminho_edits} corrompido ({e}).")
+            print("Gerando interface visual sem o estado anterior salvo para evitar queda.")
 
     # Normaliza deleted_ids para sempre trabalhar com int, independente de como foram salvos.
     deleted_ids = {int(x) for x in edits.get("deleted_ids", [])}
@@ -78,10 +82,13 @@ def gerar_html(mensagens, pasta_cliente):
                         duracao_audios_sec += _get_audio_duration_sec(fp)
             else:
                 total_palavras += len(conteudo.split())
-        # Persiste cache para evitar recálculo em regenerações automáticas
+        # Persiste cache para evitar recálculo em regenerações automáticas de forma atômica
         edits['_stats'] = {'total_palavras': total_palavras, 'duracao_audios_sec': duracao_audios_sec}
-        with open(caminho_edits, 'w', encoding='utf-8') as _f:
+        tmp_path = caminho_edits + ".tmp"
+        with open(tmp_path, 'w', encoding='utf-8') as _f:
             json.dump(edits, _f, indent=4, ensure_ascii=False)
+        os.replace(tmp_path, caminho_edits)
+        
     total_palavras_fmt = f'{total_palavras:,}'.replace(',', '.')  # Separador PT-BR: 1.234
     tempo_leitura_min = max(1, round(total_palavras / 200))
     duracao_audios_fmt = _fmt_duracao(duracao_audios_sec)

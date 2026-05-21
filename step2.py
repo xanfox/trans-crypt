@@ -17,8 +17,12 @@ def gerar_historico(pasta_cliente, mensagens_chat):
 
     edits = {"deleted_ids": [], "edited_texts": {}}
     if os.path.exists(caminho_edits):
-        with open(caminho_edits, "r", encoding="utf-8") as f:
-            edits = json.load(f)
+        try:
+            with open(caminho_edits, "r", encoding="utf-8") as f:
+                edits = json.load(f)
+        except Exception as e:
+            print(f"\\n⚠️ AVISO: {caminho_edits} corrompido ({e}).")
+            print("Consolidando sem as edições anteriores para evitar falha crítica do sistema.")
 
     # Normaliza deleted_ids para sempre trabalhar com int, independente de como foram salvos.
     deleted_ids = {int(x) for x in edits.get("deleted_ids", [])}

@@ -26,7 +26,9 @@ def main():
 
         if escolha == '9':
             print("Saindo...")
-            break
+            # Força o encerramento em nível de SO para matar threads
+            # filhas de C++ do Whisper que travam o terminal.
+            os._exit(0)
             
         elif escolha == '0':
             step0.run()
@@ -40,17 +42,21 @@ def main():
             if escolha == '1':
                 step1.run(pasta_cliente)
             elif escolha == '2':
+                step1.limpar_memoria()
                 step2.run(pasta_cliente)
             elif escolha == '3':
+                step1.limpar_memoria()
                 step3.run(pasta_cliente)
             elif escolha == '4':
                 print("\n>>> INICIANDO PASSO 1: TRANSCRIÇÃO")
                 step1.run(pasta_cliente)
+                step1.limpar_memoria()
                 print("\n>>> INICIANDO PASSO 2: HISTÓRICO")
                 step2.run(pasta_cliente)
                 print("\n>>> INICIANDO PASSO 3: HTML VISUAL")
                 step3.run(pasta_cliente)
             elif escolha == '5':
+                step1.limpar_memoria()
                 try:
                     import editor_server
                     editor_server.start_server(pasta_cliente)

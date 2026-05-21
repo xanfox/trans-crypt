@@ -23,6 +23,7 @@ O sistema foi projetado para o fluxo real de trabalho de um profissional que ate
 - **I/O em paralelo com inferência:** `num_workers=2` pré-carrega e decodifica o próximo áudio enquanto o modelo ainda está processando o atual.
 - Retomável: arquivos já transcritos são pulados automaticamente, protegendo o trabalho feito.
 - Configurável via `config.py`: modelo, `beam_size`, `initial_prompt` e nível de paralelismo.
+- **Gerenciamento ativo de memória:** o modelo (~3 GB de RAM) é descarregado automaticamente da memória quando o usuário avança para os passos 2, 3 ou o Editor Visual, devolvendo recursos ao sistema imediatamente.
 
 #### Estratégia Anti-Alucinação (4 camadas)
 
@@ -103,11 +104,77 @@ O rodapé exibe **data/hora da primeira abertura** e da **última revisão**, pe
 
 ---
 
+## 🏎️ Benchmark de Modelos (`benchmark.py`)
+
+Utilitário independente para medir e comparar **velocidade** e **acurácia** de múltiplos modelos Whisper na sua própria máquina.
+
+### Por que usar?
+
+Em um cenário real de urgência (ex: consulta agendada para daqui a 1 hora sem tempo de transcrição completa), é essencial saber o quanto confiar em uma transcrição rápida de baixa qualidade vs. uma lenta e precisa. O benchmark permite **criar um perfil de confiabilidade por modelo** com base em condições reais do seu histórico de clientes.
+
+### Modos de operação
+
+```
+[1] Rodar Benchmark Completo → transcreve com todos os 5 modelos e gera o relatório visual
+[2] Gerar HTML Comparativo   → usa transcrições já existentes (sem reprocessar)
+```
+
+### Métricas geradas
+
+```
+Modelo           | Tempo Proc.  | Velocidade   | RTF (↓ melhor)
+-----------------------------------------------------------------
+tiny             |     66.6 s   |     10.7 x   | 0.093
+small            |    351.9 s   |      2.0 x   | 0.493
+medium           |    997.7 s   |      0.7 x   | 1.397
+large-v3-turbo   |    998.9 s   |      0.7 x   | 1.399
+large-v3         |   1709.1 s   |      0.4 x   | 2.394
+```
+
+- **Velocidade Nx:** o modelo levou 1 minuto para processar N minutos de áudio.
+- **RTF (Real-Time Factor):** valores menores = processamento mais rápido (0.1 = 10x mais rápido que o tempo real).
+
+### Dashboard Comparativo HTML (`conferencia_benchmark.html`)
+
+Gerado automaticamente ao final do benchmark, abre no navegador com:
+
+- **Grid lado a lado:** todos os modelos exibidos em colunas com fonte grande para leitura confortável.
+- **Player de áudio:** ouça o original enquanto compara os textos de cada modelo.
+- **Anotações livres:** campo de texto por áudio para registrar contexto ("sotaque nordestino", "cliente alcoolizado", "muito ruído de vento").
+- **Tags de status familiares:** os mesmos balões do sistema principal (Normal / ✅ OK / ⭐ Âncora / ⚠️ Revisar).
+- **Persistência offline:** anotações e status são salvos no `localStorage` do navegador, sem servidor, vinculados ao nome do cliente. Fechando e reabrindo o arquivo, tudo está lá.
+
+```bash
+python3 benchmark.py
+```
+
+---
+
+## 🛡️ Confiabilidade e Gerenciamento de Recursos
+
+### Escrita Atômica de Dados
+
+Toda persistência do estado de auditoria (`conferencia_edits.json`) usa **escrita atômica via `os.replace()`**: os dados são primeiro escritos em um arquivo `.tmp` e só depois trocam o original de forma indivisível a nível de SO. Isso torna **matematicamente impossível** corromper o arquivo por queda de energia ou travamento durante o salvamento.
+
+### Tolerância a Corrupção
+
+Se um arquivo de estado for corrompido por falha de hardware ou edição externa, o sistema:
+1. Exibe um aviso claro no terminal.
+2. Faz backup do arquivo danificado (`conferencia_edits.json.corrupted`).
+3. **Retoma o funcionamento com estado vazio** — sem travar o pipeline nem bloquear o acesso ao cliente.
+
+### Encerramento Limpo de Processos
+
+O motor do Whisper (CTranslate2 / OpenMP) cria threads C++ em segundo plano que podem deixar o terminal travado após o término do script. O TransCrypt usa `os._exit(0)` ao sair para garantir **encerramento imediato e limpo** a nível de sistema operacional, sem processos "fantasmas".
+
+---
+
 ## 🗂️ Estrutura de Arquivos
 
 ```
 trans-crypt/
 ├── main.py              # Ponto de entrada: menu interativo no terminal
+├── benchmark.py         # Benchmark de velocidade e qualidade por modelo Whisper
 ├── step0.py             # Extração e mesclagem de zips de backup
 ├── step1.py             # Transcrição de áudios via Whisper
 ├── step2.py             # Consolidação do histórico em .txt
@@ -123,8 +190,10 @@ trans-crypt/
         ├── _chat.txt                     # Histórico unificado (gerado pelo Step 0)
         ├── PTT-*.opus / *.m4a / ...      # Áudios exportados do WhatsApp
         ├── _transcricoes/                # Transcrições .txt (geradas pelo Step 1)
+        ├── _benchmark/                   # Transcrições do benchmark por modelo
         ├── historico_consolidado.txt     # Histórico completo com transcrições (Step 2)
         ├── conferencia_visual.html       # Dashboard de auditoria (Step 3)
+        ├── conferencia_benchmark.html    # Comparativo lado a lado dos modelos
         └── conferencia_edits.json        # Edições, status e cache de stats (persistência)
 ```
 
@@ -181,7 +250,7 @@ Deposite o .zip em clientes/
 [main.py] → Opção 0: Extrai, organiza e mescla backups
      ↓
 [main.py] → Opção 1: Transcreve os áudios (Whisper large-v3)
-     ↓
+     ↓                  ↳ RAM liberada automaticamente ao avançar
 [main.py] → Opção 2: Consolida histórico com transcrições
      ↓
 [main.py] → Opção 3: Gera o painel visual HTML
@@ -191,6 +260,20 @@ Deposite o .zip em clientes/
 Confira áudios ▶ edite transcrições ✏️ marque status ✅⭐⚠️
      ↓
 "Marcar Pendentes Como Conferido" quando a revisão estiver completa
+```
+
+### Fluxo de Benchmark (Comparação de Modelos)
+
+```
+[benchmark.py] → Opção 1: Roda todos os 5 modelos na pasta do cliente
+     ↓
+Tabela de métricas: Velocidade / RTF por modelo
+     ↓
+conferencia_benchmark.html aberto automaticamente no navegador
+     ↓
+Compare textos lado a lado ▶ anote contextos ✏️ marque confiabilidade ⭐
+     ↓
+[benchmark.py] → Opção 2: Regenera o HTML sem re-transcrever (zero tempo)
 ```
 
 ---
@@ -235,13 +318,18 @@ python3 main.py
 
 No primeiro uso, a pasta `clientes/` é criada automaticamente. Basta depositar os `.zip` dentro dela e usar o menu interativo.
 
+```bash
+# Benchmark independente de modelos
+python3 benchmark.py
+```
+
 ---
 
 ## ⚙️ Configuração (`config.py`)
 
 | Parâmetro | Padrão | Descrição |
 |---|---|---|
-| `MODELO_WHISPER` | `large-v3` | Modelo Whisper (`tiny`, `small`, `medium`, `large-v3`, `large-v3-turbo`) |
+| `MODELO_WHISPER` | `large-v3-turbo` | Modelo Whisper (`tiny`, `small`, `medium`, `large-v3`, `large-v3-turbo`) |
 | `WHISPER_BEAM_SIZE` | `5` | Qualidade de busca (1=rápido, 5=padrão ouro, 7+=ganho mínimo) |
 | `WHISPER_INITIAL_PROMPT` | `""` | Prompt de domínio em linguagem natural para ancorar vocabulário específico |
 | `WHISPER_NUM_WORKERS` | `2` | Workers de pré-processamento de áudio (I/O em paralelo com a inferência) |
@@ -256,11 +344,11 @@ No primeiro uso, a pasta `clientes/` é criada automaticamente. Basta depositar 
 | Tecnologia | Uso |
 |---|---|
 | **Python 3** | Lógica central, manipulação de arquivos e servidor |
-| **faster-whisper (large-v3)** | Motor de transcrição de áudio com IA — 100% local |
+| **faster-whisper** | Motor de transcrição de áudio com IA — 100% local |
 | **FFmpeg / ffprobe** | Conversão de áudio para Whisper e cálculo de durações |
 | **Flask** | Servidor backend leve para persistir edições da UI |
 | **HTML / CSS / Vanilla JS** | Dashboard de auditoria sem dependências Node/NPM |
-| **JSON** | Camada de persistência leve para edições, status e cache de stats |
+| **JSON + escrita atômica** | Camada de persistência blindada contra corrupção por queda de energia |
 
 ---
 

@@ -24,7 +24,9 @@ EXTENSOES_MIDIA_HTML = EXTENSOES_AUDIO + (".jpg", ".jpeg", ".png")
 #   'large-v3-turbo' → ~6-8x mais rápido que large-v3, perda mínima de qualidade
 #   'medium'         → boa acurácia, moderado
 #   'small'          → rápido, aceitável para áudios limpos
-MODELO_WHISPER = "large-v3"
+#MODELO_WHISPER = "large-v3"
+MODELO_WHISPER = "large-v3-turbo"
+
 
 # O 'beam_size' dita o quanto a IA "pensa" nas palavras.
 # 1 = rápido e simples | 5 = padrão ouro de qualidade | 7+ = ganho mínimo, custo alto

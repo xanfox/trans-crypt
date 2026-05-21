@@ -14,17 +14,29 @@ def get_edits_file():
 def load_edits():
     path = get_edits_file()
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if "status" not in data:
-                data["status"] = {}
-            return data
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if "status" not in data:
+                    data["status"] = {}
+                return data
+        except Exception as e:
+            print(f"\\n⚠️ AVISO: O arquivo de edições está corrompido: {e}")
+            print(f"Fazendo backup para .corrupted e iniciando um estado vazio para não travar.")
+            try:
+                import shutil
+                shutil.copy(path, path + ".corrupted")
+            except:
+                pass
     return {"deleted_ids": [], "edited_texts": {}, "status": {}}
 
 def save_edits(data):
     path = get_edits_file()
-    with open(path, "w", encoding="utf-8") as f:
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
+    # Escrita atômica: previne corrupção de arquivo em caso de queda de energia
+    os.replace(tmp_path, path)
 
 def rebuild_files():
     step2.run(app.config['CLIENT_FOLDER'], auto=True)

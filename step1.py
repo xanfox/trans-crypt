@@ -35,6 +35,21 @@ def _get_whisper():
     return _whisper_model
 
 
+def limpar_memoria():
+    """Libera a memória RAM ocupada pelo modelo Whisper.
+    
+    Deve ser chamada quando a transcrição terminar e o usuário for
+    para outras etapas do sistema, devolvendo preciosos gigabytes 
+    de RAM para o sistema operacional antes de abrir o navegador.
+    """
+    global _whisper_model
+    if _whisper_model is not None:
+        _whisper_model = None
+        import gc
+        gc.collect()
+        print("🧹 [Memória de ~3GB do Whisper liberada com sucesso]")
+
+
 # ================= FUNÇÕES =================
 def converter_para_wav_seguro(caminho_origem):
     """Converte qualquer arquivo de áudio para WAV mono 16kHz compatível com o Whisper.
