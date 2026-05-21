@@ -18,6 +18,8 @@ clientes/
 # Chaves e Configurações Pessoais
 .env
 .env.local
+credentials.json
+token.json
 .DS_Store
 
 # IDEs

@@ -59,3 +59,8 @@ PROCESSAMENTO_PARALELO_ARQUIVOS = max(1, (os.cpu_count() or 4) // 2)
 
 # Lixo unicode para limpar nas leituras
 UNICODE_LIXO = ["\u200e", "\u202a", "\u202c", "\ufeff"]
+
+# ================= GOOGLE DRIVE =================
+# ID da pasta onde as transcrições serão salvas (extraído da URL da pasta no Drive)
+GOOGLE_DRIVE_FOLDER_ID = "14wm9J0B_eZPiQI-P30LNbIxWLtrEUA6p"
+

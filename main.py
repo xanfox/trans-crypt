@@ -16,6 +16,7 @@ def mostrar_menu():
     print("[3] Gerar Conferência Visual (Step 3)")
     print("[4] Rodar Passos 1 ao 3 (P/ 1 Cliente)")
     print("[5] Abrir Editor Visual (Interativo)")
+    print("[6] Publicar no Google Drive (Step 6)")
     print("[9] Sair")
     print("="*35)
 
@@ -35,7 +36,7 @@ def main():
             os.system("stty sane")  # ffmpeg pode bagunçar o estado do terminal
             input("\nPressione Enter para continuar...")
             
-        elif escolha in ('1', '2', '3', '4', '5'):
+        elif escolha in ('1', '2', '3', '4', '5', '6'):
             # Todos os passos precisam saber qual o cliente. 
             # Pedimos apenas uma vez aqui se for rodar tudo, ou passo individual.
             pasta_cliente = utils.escolher_pasta_cliente()
@@ -65,6 +66,14 @@ def main():
                     print("\n❌ ERRO: O módulo 'flask' não foi encontrado neste ambiente Python.")
                     print("Por favor, instale-o rodando o comando no seu terminal:")
                     print("    pip install flask")
+            elif escolha == '6':
+                step1.limpar_memoria()
+                try:
+                    import step6
+                    step6.run(pasta_cliente)
+                except ModuleNotFoundError:
+                    print("\n❌ ERRO: Bibliotecas do Google não instaladas.")
+                    print("Rode: pip install -r requirements.txt")
                 
             os.system("stty sane")  # restaura o terminal após subprocessos paralelos
             input("\nPressione Enter para continuar...")
