@@ -32,6 +32,7 @@ def main():
             
         elif escolha == '0':
             step0.run()
+            os.system("stty sane")  # ffmpeg pode bagunçar o estado do terminal
             input("\nPressione Enter para continuar...")
             
         elif escolha in ('1', '2', '3', '4', '5'):
@@ -65,6 +66,7 @@ def main():
                     print("Por favor, instale-o rodando o comando no seu terminal:")
                     print("    pip install flask")
                 
+            os.system("stty sane")  # restaura o terminal após subprocessos paralelos
             input("\nPressione Enter para continuar...")
         else:
             print("Opção inválida.")
