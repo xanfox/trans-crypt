@@ -55,7 +55,7 @@ def gerar_html(mensagens, pasta_cliente):
     ]
 
     # ── Calcula estatísticas do documento (com cache para evitar ffprobe em cada toggle) ──
-    nome_cliente = os.path.basename(pasta_cliente.rstrip('/\\'))
+    nome_cliente = utils.formatar_nome_display(pasta_cliente)
     stats_cache = edits.get('_stats', {})
     if stats_cache and 'total_palavras' in stats_cache:
         total_palavras = stats_cache['total_palavras']

@@ -90,3 +90,55 @@ def limpar_unicode(txt):
     for c in config.UNICODE_LIXO:
         txt = txt.replace(c, "")
     return txt.strip()
+
+
+def formatar_nome_display(pasta_cliente):
+    """Retorna o nome limpo e formatado do cliente para exibição na interface HTML.
+    
+    Aplica as mesmas regras de limpeza do Step 0 diretamente sobre o nome da
+    pasta, eliminando prefixos do WhatsApp, tags de qualificação, datas
+    duplicadas e formatando a data de nascimento com barras (DD/MM/AAAA).
+    
+    Args:
+        pasta_cliente (str): Caminho para a pasta do cliente.
+        
+    Returns:
+        str: Nome limpo para exibição (ex: 'Stefan Frederick Toledo - 21/10/1995').
+    """
+    import re
+
+    PREFIXOS = [
+        "conversa do whatsapp com ",
+        "whatsapp chat with ",
+        "whatsapp chat - ",
+        "lead ",
+        "consulente ",
+        "fr ",
+    ]
+
+    nome = os.path.basename(pasta_cliente.rstrip('/\\'))
+
+    # Remove prefixos iterativamente (case-insensitive)
+    alterou = True
+    while alterou:
+        alterou = False
+        lower = nome.lower()
+        for prefixo in PREFIXOS:
+            if lower.startswith(prefixo):
+                nome = nome[len(prefixo):].strip()
+                alterou = True
+                break
+
+    # Detecta e formata data no final, eliminando duplicatas
+    # Aceita DD_MM_AAAA, DD-MM-AAAA ou DD/MM/AAAA (pode aparecer mais de uma vez)
+    match = re.search(r'^(.*?)\s*((?:\d{2}[-_/]\d{2}[-_/]\d{4}\s*)+)$', nome)
+    if match:
+        nome_pessoa = match.group(1).strip()
+        # Pega apenas a PRIMEIRA data encontrada (elimina duplicatas)
+        primeira_data = re.search(r'\d{2}[-_/]\d{2}[-_/]\d{4}', match.group(2))
+        if primeira_data:
+            # Normaliza para DD/MM/AAAA (formato de leitura humana)
+            data_fmt = re.sub(r'[-_]', '/', primeira_data.group(0))
+            nome = f"{nome_pessoa} - {data_fmt}"
+
+    return nome.strip() or os.path.basename(pasta_cliente.rstrip('/\\'))
