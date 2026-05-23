@@ -64,3 +64,11 @@ UNICODE_LIXO = ["\u200e", "\u202a", "\u202c", "\ufeff"]
 # ID da pasta onde as transcrições serão salvas (extraído da URL da pasta no Drive)
 GOOGLE_DRIVE_FOLDER_ID = "14wm9J0B_eZPiQI-P30LNbIxWLtrEUA6p"
 
+# ================= OLLAMA (PRIVACIDADE E ANONIMIZAÇÃO) =================
+# Configurações para o processamento 100% local visando proteger o sigilo dos dados do cliente.
+OLLAMA_HOST = "http://localhost:11434"
+# deepseek-r1:7b → ~4.7 GB RAM. Sem filtros de safety, ideal para anonimização em máquinas com 16 GB.
+# deepseek-r1:14b → ~9.7 GB RAM. Mais preciso, mas requer 32 GB+ de RAM para não travar.
+# Para benchmarks futuros, troque aqui: deepseek-r1:7b, deepseek-r1:14b, llama3.1:8b
+OLLAMA_MODELO = "deepseek-r1:7b"
+

@@ -5,10 +5,11 @@ import utils
 from whatsapp_parser import parse_chat_whatsapp
 
 # ================= SAÍDA =================
-def gerar_historico(pasta_cliente, mensagens_chat):
-    caminho_saida = os.path.join(pasta_cliente, config.ARQUIVO_HISTORICO)
-    caminho_edits = os.path.join(pasta_cliente, "conferencia_edits.json")
-    pasta_trans = os.path.join(pasta_cliente, config.PASTA_TRANSCRICOES)
+def gerar_historico(pasta_cliente, mensagens_chat, arquivo_saida=config.ARQUIVO_HISTORICO, 
+                    arquivo_edits="conferencia_edits.json", pasta_transcricoes=config.PASTA_TRANSCRICOES):
+    caminho_saida = os.path.join(pasta_cliente, arquivo_saida)
+    caminho_edits = os.path.join(pasta_cliente, arquivo_edits)
+    pasta_trans = os.path.join(pasta_cliente, pasta_transcricoes)
 
     arquivos_midia = [
         f for f in os.listdir(pasta_cliente)
@@ -66,7 +67,7 @@ def gerar_historico(pasta_cliente, mensagens_chat):
     print(f"\n✔ Histórico consolidado criado em:\n{caminho_saida}")
 
 # ================= MAIN =================
-def run(pasta_cliente=None, auto=False):
+def run(pasta_cliente=None, auto=False, **kwargs):
     if not pasta_cliente:
         pasta_cliente = utils.escolher_pasta_cliente()
 
@@ -75,7 +76,7 @@ def run(pasta_cliente=None, auto=False):
     print("\n📖 Processando chat...")
     mensagens_chat = parse_chat_whatsapp(chat)
 
-    gerar_historico(pasta_cliente, mensagens_chat)
+    gerar_historico(pasta_cliente, mensagens_chat, **kwargs)
 
 if __name__ == "__main__":
     run()

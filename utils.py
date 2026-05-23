@@ -42,6 +42,7 @@ def escolher_chat_txt(pasta_cliente, auto=False):
         f for f in os.listdir(pasta_cliente)
         if f.lower().endswith(".txt")
         and f != config.ARQUIVO_HISTORICO   # exclui historico_consolidado.txt
+        and f != "historico_anonimizado.txt" # exclui saída do Step 4
     ]
 
     if not arquivos:
@@ -95,15 +96,14 @@ def limpar_unicode(txt):
 def formatar_nome_display(pasta_cliente):
     """Retorna o nome limpo e formatado do cliente para exibição na interface HTML.
     
-    Aplica as mesmas regras de limpeza do Step 0 diretamente sobre o nome da
-    pasta, eliminando prefixos do WhatsApp, tags de qualificação, datas
-    duplicadas e formatando a data de nascimento com barras (DD/MM/AAAA).
+    Remove prefixos do WhatsApp, tags de qualificação, datas duplicadas e
+    formata a data de nascimento com barras (DD/MM/AAAA).
     
     Args:
         pasta_cliente (str): Caminho para a pasta do cliente.
         
     Returns:
-        str: Nome limpo para exibição (ex: 'Stefan Frederick Toledo - 21/10/1995').
+        str: Nome limpo (ex: 'Stefan Frederick Toledo - 21/10/1995').
     """
     import re
 
@@ -129,16 +129,23 @@ def formatar_nome_display(pasta_cliente):
                 alterou = True
                 break
 
-    # Detecta e formata data no final, eliminando duplicatas
-    # Aceita DD_MM_AAAA, DD-MM-AAAA ou DD/MM/AAAA (pode aparecer mais de uma vez)
-    match = re.search(r'^(.*?)\s*((?:\d{2}[-_/]\d{2}[-_/]\d{4}\s*)+)$', nome)
-    if match:
-        nome_pessoa = match.group(1).strip()
-        # Pega apenas a PRIMEIRA data encontrada (elimina duplicatas)
-        primeira_data = re.search(r'\d{2}[-_/]\d{2}[-_/]\d{4}', match.group(2))
-        if primeira_data:
-            # Normaliza para DD/MM/AAAA (formato de leitura humana)
-            data_fmt = re.sub(r'[-_]', '/', primeira_data.group(0))
-            nome = f"{nome_pessoa} - {data_fmt}"
+    # Encontra TODAS as datas no formato DD_MM_AAAA / DD-MM-AAAA / DD/MM/AAAA
+    PADRAO_DATA = re.compile(r'\d{2}[-_/]\d{2}[-_/]\d{4}')
+    datas = PADRAO_DATA.findall(nome)
 
-    return nome.strip() or os.path.basename(pasta_cliente.rstrip('/\\'))
+    if datas:
+        # Remove todas as ocorrências de data do nome (elimina duplicatas)
+        nome_sem_data = PADRAO_DATA.sub('', nome)
+        # Remove emojis e caracteres especiais (mantém letras, acentos, números, espaços, hífens)
+        nome_sem_data = re.sub(r'[^\w\s\-\/]', '', nome_sem_data)
+        # Limpa espaços extras resultantes da remoção
+        nome_sem_data = re.sub(r'\s+', ' ', nome_sem_data).strip().rstrip('-').strip()
+        # Formata apenas a primeira data com barras: 21_10_1995 → 21/10/1995
+        data_fmt = re.sub(r'[-_]', '/', datas[0])
+        nome = f"{nome_sem_data} - {data_fmt}"
+    else:
+        # Remove emojis e caracteres especiais caso não haja data
+        nome = re.sub(r'[^\w\s\-\/]', '', nome)
+        nome = re.sub(r'\s+', ' ', nome).strip().rstrip('-').strip()
+
+    return nome or os.path.basename(pasta_cliente.rstrip('/\\'))

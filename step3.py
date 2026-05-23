@@ -1,5 +1,7 @@
 import html as html_module
+import json
 import os
+import re
 import subprocess
 import config
 import utils
@@ -30,13 +32,68 @@ def _fmt_duracao(sec):
     else:
         return f"{s}s"
 
-# ================= HTML =================
-def gerar_html(mensagens, pasta_cliente):
-    import json
-    pasta_trans = os.path.join(pasta_cliente, config.PASTA_TRANSCRICOES)
-    saida = os.path.join(pasta_cliente, "conferencia_visual.html")
+# ================= MODO REVISÃO ANONIMIZAÇÃO =================
+# Mapeia cada tag de anonimização para sua classe CSS correspondente.
+_TAG_CSS_MAP = {
+    "[NOME]": "tag-nome",
+    "[LOCAL]": "tag-local",
+    "[DATA NASCIMENTO]": "tag-data",
+    "[DATA]": "tag-data",
+    "[DADO CLÍNICO]": "tag-clinico",
+}
+
+def _render_anon_tags(html_text, anon_map, msg_id_str, arq_midia=''):
+    """Substitui tags de anonimização em texto HTML por spans interativos.
     
-    caminho_edits = os.path.join(pasta_cliente, "conferencia_edits.json")
+    Cada tag renderizada:
+    - Mostra tooltip com texto original ao hover
+    - Clique 1: reverte ao texto original (chama API /api/revert_tag)
+    - Clique no texto revertido: popup para re-taggear com outra categoria
+    
+    Usa abordagem de 2 passes com placeholders para evitar que a substituição
+    de uma tag sobrescreva o HTML já injetado de uma tag anterior.
+    """
+    msg_subs = anon_map.get(msg_id_str, [])
+    if not msg_subs:
+        return html_text
+    
+    # Passo 1: Substitui cada tag por um placeholder único
+    placeholders = {}
+    for i, sub in enumerate(msg_subs):
+        tag = sub["tag"]
+        original = html_module.escape(sub["original"])
+        css_class = _TAG_CSS_MAP.get(tag, "tag-nome")
+        
+        placeholder = f"\x00ANON_{i}\x00"
+        span = (f'<span class="anon-tag {css_class}" '
+                f'title="← {original}" '
+                f'data-msg-id="{msg_id_str}" '
+                f'data-sub-index="{i}" '
+                f'data-original="{original}" '
+                f'data-tag="{html_module.escape(tag)}" '
+                f'data-midia="{arq_midia}" '
+                f'onclick="onAnonTagClick(this)">'
+                f'{html_module.escape(tag)}'
+                f'<span class="anon-original">← {original}</span>'
+                f'</span>')
+        placeholders[placeholder] = span
+        
+        escaped_tag = html_module.escape(tag)
+        html_text = html_text.replace(escaped_tag, placeholder, 1)
+    
+    # Passo 2: Substitui placeholders pelos spans HTML finais
+    for placeholder, span in placeholders.items():
+        html_text = html_text.replace(placeholder, span)
+    
+    return html_text
+
+# ================= HTML =================
+def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html", 
+               arquivo_edits="conferencia_edits.json", pasta_transcricoes=config.PASTA_TRANSCRICOES):
+    pasta_trans = os.path.join(pasta_cliente, pasta_transcricoes)
+    saida = os.path.join(pasta_cliente, nome_saida)
+    
+    caminho_edits = os.path.join(pasta_cliente, arquivo_edits)
     edits = {"deleted_ids": [], "edited_texts": {}}
     if os.path.exists(caminho_edits):
         try:
@@ -48,6 +105,11 @@ def gerar_html(mensagens, pasta_cliente):
 
     # Normaliza deleted_ids para sempre trabalhar com int, independente de como foram salvos.
     deleted_ids = {int(x) for x in edits.get("deleted_ids", [])}
+
+    # Detecta modo de revisão de anonimização pelo nome do arquivo de edições
+    # (não pelo conteúdo de anon_map, que pode ficar vazio após todas as tags serem revertidas)
+    anon_map = edits.get("anon_map", {})
+    is_anon_mode = "anonimizada" in arquivo_edits
 
     arquivos_midia = [
         f for f in os.listdir(pasta_cliente)
@@ -84,7 +146,8 @@ def gerar_html(mensagens, pasta_cliente):
                 total_palavras += len(conteudo.split())
         # Persiste cache para evitar recálculo em regenerações automáticas de forma atômica
         edits['_stats'] = {'total_palavras': total_palavras, 'duracao_audios_sec': duracao_audios_sec}
-        tmp_path = caminho_edits + ".tmp"
+        import uuid as _uuid
+        tmp_path = caminho_edits + f".{_uuid.uuid4().hex}.tmp"
         with open(tmp_path, 'w', encoding='utf-8') as _f:
             json.dump(edits, _f, indent=4, ensure_ascii=False)
         os.replace(tmp_path, caminho_edits)
@@ -198,6 +261,11 @@ def gerar_html(mensagens, pasta_cliente):
         font-size: 13px;
         color: var(--text-muted);
         font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .meta:hover {
+        opacity: 0.7;
     }
     .id {
         font-size: 12px;
@@ -340,12 +408,147 @@ def gerar_html(mensagens, pasta_cliente):
         cursor: pointer;
         font-weight: 600;
     }
+    /* ── Tags de anonimização (modo revisão) ── */
+    .anon-tag {
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        position: relative;
+        transition: all 0.25s ease;
+        user-select: none;
+    }
+    .anon-tag:hover {
+        filter: brightness(1.3);
+    }
+    .anon-tag .anon-original {
+        display: none;
+        position: absolute;
+        bottom: 120%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #0f172a;
+        color: #f1f5f9;
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 1px solid #475569;
+        font-size: 13px;
+        font-weight: 500;
+        white-space: nowrap;
+        z-index: 100;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        pointer-events: none;
+    }
+    .anon-tag .anon-original::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: #475569;
+    }
+    .anon-tag:hover .anon-original {
+        display: block;
+    }
+    .tag-nome {
+        background: rgba(239, 68, 68, 0.2);
+        color: #f87171;
+    }
+    .tag-local {
+        background: rgba(59, 130, 246, 0.2);
+        color: #60a5fa;
+    }
+    .tag-data {
+        background: rgba(168, 85, 247, 0.2);
+        color: #c084fc;
+    }
+    .tag-clinico {
+        background: rgba(245, 158, 11, 0.2);
+        color: #fbbf24;
+    }
+    .anon-legend {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid #334155;
+    }
+    .anon-legend span {
+        padding: 3px 10px;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+    /* ── Tag revertida (texto original exposto) ── */
+    .anon-reverted {
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+        position: relative;
+        border: 2px dashed #94a3b8;
+        background: rgba(148, 163, 184, 0.1);
+        color: #e2e8f0;
+        transition: all 0.25s ease;
+        user-select: none;
+    }
+    .anon-reverted:hover {
+        border-color: #60a5fa;
+        background: rgba(96, 165, 250, 0.1);
+    }
+    /* ── Popup de re-tag ── */
+    #retagPopup {
+        display: none;
+        position: fixed;
+        z-index: 9999;
+        background: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 12px;
+        padding: 10px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        gap: 6px;
+        flex-direction: column;
+    }
+    #retagPopup.show {
+        display: flex;
+    }
+    .retag-option {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 13px;
+        cursor: pointer;
+        transition: filter 0.2s, transform 0.15s;
+        text-align: left;
+    }
+    .retag-option:hover {
+        filter: brightness(1.4);
+        transform: scale(1.04);
+    }
+    .retag-opt-nome { background: rgba(239,68,68,0.25); color: #f87171; }
+    .retag-opt-local { background: rgba(59,130,246,0.25); color: #60a5fa; }
+    .retag-opt-data { background: rgba(168,85,247,0.25); color: #c084fc; }
+    .retag-opt-clinico { background: rgba(245,158,11,0.25); color: #fbbf24; }
+    .retag-cancel { background: rgba(148,163,184,0.15); color: #94a3b8; }
 </style>
 </head>
 <body>
 <div id="contextMenu" class="context-menu" style="display:none;">
     <button onclick="editarSelecionado()">✏️ Editar</button>
     <button onclick="apagarSelecionado()" style="color: #ef4444;">🗑️ Apagar</button>
+</div>
+<div id="retagPopup">
+    <button class="retag-option retag-opt-nome" onclick="applyRetag('[NOME]')">[NOME]</button>
+    <button class="retag-option retag-opt-local" onclick="applyRetag('[LOCAL]')">[LOCAL]</button>
+    <button class="retag-option retag-opt-data" onclick="applyRetag('[DATA]')">[DATA]</button>
+    <button class="retag-option retag-opt-clinico" onclick="applyRetag('[DADO CLÍNICO]')">[DADO CLÍNICO]</button>
+    <button class="retag-option retag-cancel" onclick="closeRetagPopup()">✕ Cancelar</button>
 </div>
 """
 
@@ -393,7 +596,7 @@ def gerar_html(mensagens, pasta_cliente):
 </div>
 <div class="chat">
 <div style="text-align: center; border-bottom: 1px solid #334155; padding-bottom: 20px; margin-bottom: 24px;">
-    <h2 style="margin: 0 0 14px 0; font-size: 22px; color: #fff;">📋 Conferência: {nome_cliente}</h2>
+    <h2 style="margin: 0 0 14px 0; font-size: 22px; color: #fff;">📋 Conferência{' [ANONIMIZADA]' if is_anon_mode else ''}: {nome_cliente}</h2>
     <div style="display: flex; justify-content: center; gap: 14px; flex-wrap: wrap;">
         <span style="background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 5px 14px; border-radius: 20px; font-size: 13px; color: #10b981; font-weight: 600;">📝 {total_palavras_fmt} palavras</span>
         <span style="background: rgba(99,102,241,0.12); border: 1px solid rgba(99,102,241,0.3); padding: 5px 14px; border-radius: 20px; font-size: 13px; color: #818cf8; font-weight: 600;">📖 ~{tempo_leitura_min} min leitura</span>
@@ -401,6 +604,17 @@ def gerar_html(mensagens, pasta_cliente):
         <span style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.3); padding: 5px 14px; border-radius: 20px; font-size: 13px; color: #f87171; font-weight: 600;">⏱️ ~{tempo_total_min} min de revisão</span>
     </div>
 </div>
+"""
+
+    if is_anon_mode:
+        html += """
+    <div class="anon-legend">
+        <span class="anon-tag tag-nome">[NOME]</span>
+        <span class="anon-tag tag-local">[LOCAL]</span>
+        <span class="anon-tag tag-data">[DATA]</span>
+        <span class="anon-tag tag-clinico">[DADO CLÍNICO]</span>
+        <span style="font-size: 12px; color: #94a3b8; align-self: center;">← passe o mouse para ver o original</span>
+    </div>
 """
 
     for m in mensagens:
@@ -432,7 +646,7 @@ def gerar_html(mensagens, pasta_cliente):
             class_status = " status-review"
             icon_status = " ⚠️ Revisar"
 
-        html += f'<div class="msg {lado}{class_status}" data-id="{m["id"]}" onclick="toggleMsgStatus(event, {m["id"]})" style="cursor: pointer;" title="Clique no balão para marcar como OK/Revisar">'
+        html += f'<div class="msg {lado}{class_status}" data-id="{m["id"]}">'
         
         conteudo = m["conteudo"]
         arquivo_encontrado = None
@@ -447,7 +661,7 @@ def gerar_html(mensagens, pasta_cliente):
         arq_midia_js = arquivo_encontrado.replace("'", "\\'") if arquivo_encontrado else ''
 
         html += '<div class="meta-container">'
-        html += f'<div class="meta">{m["data"]} {m["hora"]} — {autor_seguro}<span class="status-indicator" id="status-icon-{m["id"]}">{icon_status}</span></div>'
+        html += f'<div class="meta" onclick="toggleMsgStatus(event, {m["id"]})" title="Clique no cabeçalho para marcar como OK/Revisar/Ancora">{m["data"]} {m["hora"]} — {autor_seguro}<span class="status-indicator" id="status-icon-{m["id"]}">{icon_status}</span></div>'
         html += f'<div class="id" onclick="showMenu(event, {m["id"]}, \'{arq_midia_js}\', \'{tipo_edicao}\')" title="Clique para editar/apagar">#id:{m["id"]} ⚙️</div>'
         html += '</div>'
 
@@ -466,11 +680,15 @@ def gerar_html(mensagens, pasta_cliente):
             if trans:
                 # Usa '\n' (newline real) e escapa o conteúdo antes de inserir no HTML
                 trans_html = html_module.escape(trans).replace('\n', '<br>')
+                if is_anon_mode:
+                    trans_html = _render_anon_tags(trans_html, anon_map, msg_id_str, arq_midia_js)
                 html += f'<div class="transc"><b>Transcrição</b><span id="text-{m["id"]}">{trans_html}</span></div>'
 
             html += '</div>'
         else:
             conteudo_html = html_module.escape(conteudo).replace('\n', '<br>')
+            if is_anon_mode:
+                conteudo_html = _render_anon_tags(conteudo_html, anon_map, msg_id_str, "")
             html += f'<div class="msg-content" id="content-{m["id"]}">{conteudo_html}</div>'
 
         html += '</div>'
@@ -512,7 +730,9 @@ def gerar_html(mensagens, pasta_cliente):
         if (['AUDIO', 'VIDEO', 'BUTTON', 'TEXTAREA', 'IMG', 'A'].includes(e.target.tagName)) return;
         if (e.target.closest('.id') || e.target.closest('.context-menu')) return;
         
-        const msgDiv = e.currentTarget;
+        // O handler está no .meta, mas o estado de status está no .msg pai
+        const msgDiv = e.currentTarget.closest('.msg');
+        if (!msgDiv) return;
         const iconSpan = document.getElementById('status-icon-' + id);
         
         let currentStatus = 'none';
@@ -598,10 +818,8 @@ def gerar_html(mensagens, pasta_cliente):
     });
 
     function getApiUrl() {
-        if (window.location.protocol === 'http:') {
-            return window.location.origin;
-        }
-        return 'http://127.0.0.1:5000';
+        // Sempre usa a origem da janela atual (porta correta, mesmo que Flask suba em 5001, 5002, etc.)
+        return window.location.origin;
     }
 
     function apagarSelecionado() {
@@ -623,7 +841,8 @@ def gerar_html(mensagens, pasta_cliente):
         const container = document.getElementById(containerId);
         if(!container) return;
         
-        let originalText = container.innerHTML.replace(/<br\\s*[\\/]?>/gi, '\\n');
+        // Captura apenas o texto visível (innerText evita capturar HTML de spans de anonimização)
+        let originalText = container.innerText;
         
         const textarea = document.createElement('textarea');
         textarea.className = 'editor-textarea';
@@ -753,6 +972,91 @@ def gerar_html(mensagens, pasta_cliente):
     window.addEventListener('DOMContentLoaded', () => {
         fetch(getApiUrl() + '/api/track_open', { method: 'POST' }).catch(e => {});
     });
+
+    // ================= ANONIMIZAÇÃO INTERATIVA =================
+    let retagTarget = null; // span atualmente sendo re-taggeado
+
+    function onAnonTagClick(el) {
+        // Estado 1: tag ativa → reverter para texto original (imediato, sem popup)
+        const msgId = el.dataset.msgId;
+        const subIndex = parseInt(el.dataset.subIndex);
+        const original = el.dataset.original;
+        const midia = el.dataset.midia;
+
+        revertTag(el, msgId, subIndex, original, midia);
+    }
+
+    function revertTag(el, msgId, subIndex, original, midia) {
+        fetch(getApiUrl() + '/api/revert_tag', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({msg_id: msgId, original: original, tag: el.dataset.tag, arquivo_midia: midia})
+        }).then(r => r.json()).then(data => {
+            if (data.success) {
+                // Transforma o span de tag ativa em span revertido
+                el.className = 'anon-reverted';
+                el.removeAttribute('title');
+                el.textContent = original; // textContent evita injeção de HTML
+                el.dataset.original = original;
+                if (midia) el.dataset.midia = midia;
+                el.onclick = function() { showRetagPopup(this); };
+            } else {
+                alert('Erro ao reverter: ' + (data.error || 'desconhecido'));
+            }
+        }).catch(e => alert('Erro. Servidor não está rodando.'));
+    }
+
+    function showRetagPopup(el) {
+        retagTarget = el;
+        const popup = document.getElementById('retagPopup');
+        const rect = el.getBoundingClientRect();
+        popup.style.left = Math.min(rect.left, window.innerWidth - 200) + 'px';
+        popup.style.top = (rect.bottom + 8) + 'px';
+        popup.classList.add('show');
+
+        // Fecha ao clicar fora
+        setTimeout(() => {
+            document.addEventListener('click', closeRetagOnOutside, {once: true});
+        }, 50);
+    }
+
+    function closeRetagOnOutside(e) {
+        const popup = document.getElementById('retagPopup');
+        if (!popup.contains(e.target)) {
+            closeRetagPopup();
+        }
+    }
+
+    function closeRetagPopup() {
+        document.getElementById('retagPopup').classList.remove('show');
+        retagTarget = null;
+    }
+
+    function applyRetag(newTag) {
+        if (!retagTarget) return;
+        const el = retagTarget;
+        const msgId = el.dataset.msgId;
+        const original = el.dataset.original;
+        const midia = el.dataset.midia;
+
+        fetch(getApiUrl() + '/api/retag', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({msg_id: msgId, original: original, new_tag: newTag, arquivo_midia: midia})
+        }).then(r => r.json()).then(data => {
+            if (data.success) {
+                closeRetagPopup();
+                location.reload();
+            } else {
+                alert('Erro ao re-taggear: ' + (data.error || 'desconhecido'));
+            }
+        }).catch(e => alert('Erro. Servidor não está rodando.'));
+    }
+
+    // Fecha popup com ESC
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeRetagPopup();
+    });
 </script>
 </div></body></html>"""
 
@@ -762,13 +1066,13 @@ def gerar_html(mensagens, pasta_cliente):
     print(f"\n✔ Conferência criada com sucesso: {saida}")
 
 # ================= MAIN =================
-def run(pasta_cliente=None, auto=False):
+def run(pasta_cliente=None, auto=False, **kwargs):
     if not pasta_cliente:
         pasta_cliente = utils.escolher_pasta_cliente()
     
     chat = utils.escolher_chat_txt(pasta_cliente, auto=auto)
     msgs = parse_chat_whatsapp(chat)
-    gerar_html(msgs, pasta_cliente)
+    gerar_html(msgs, pasta_cliente, **kwargs)
 
 if __name__ == "__main__":
     run()

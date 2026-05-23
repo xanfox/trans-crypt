@@ -5,6 +5,7 @@ import step0
 import step1
 import step2
 import step3
+import step4
 
 def mostrar_menu():
     print("\n" + "="*35)
@@ -14,9 +15,10 @@ def mostrar_menu():
     print("[1] Transcrever Áudios (Step 1)")
     print("[2] Gerar Histórico Texto (Step 2)")
     print("[3] Gerar Conferência Visual (Step 3)")
-    print("[4] Rodar Passos 1 ao 3 (P/ 1 Cliente)")
-    print("[5] Abrir Editor Visual (Interativo)")
-    print("[6] Publicar no Google Drive (Step 6)")
+    print("[4] Anonimizar Histórico Localmente (Step 4)")
+    print("[5] Rodar Passos 1 ao 3 (P/ 1 Cliente)")
+    print("[6] Abrir Editor Visual (Interativo)")
+    print("[7] Publicar no Google Drive (Step 6)")
     print("[9] Sair")
     print("="*35)
 
@@ -36,7 +38,7 @@ def main():
             os.system("stty sane")  # ffmpeg pode bagunçar o estado do terminal
             input("\nPressione Enter para continuar...")
             
-        elif escolha in ('1', '2', '3', '4', '5', '6'):
+        elif escolha in ('1', '2', '3', '4', '5', '6', '7'):
             # Todos os passos precisam saber qual o cliente. 
             # Pedimos apenas uma vez aqui se for rodar tudo, ou passo individual.
             pasta_cliente = utils.escolher_pasta_cliente()
@@ -50,6 +52,9 @@ def main():
                 step1.limpar_memoria()
                 step3.run(pasta_cliente)
             elif escolha == '4':
+                step1.limpar_memoria()
+                step4.run(pasta_cliente)
+            elif escolha == '5':
                 print("\n>>> INICIANDO PASSO 1: TRANSCRIÇÃO")
                 step1.run(pasta_cliente)
                 step1.limpar_memoria()
@@ -57,16 +62,21 @@ def main():
                 step2.run(pasta_cliente)
                 print("\n>>> INICIANDO PASSO 3: HTML VISUAL")
                 step3.run(pasta_cliente)
-            elif escolha == '5':
+            elif escolha == '6':
                 step1.limpar_memoria()
+                print("\nQual conferência abrir?")
+                print("[1] Conferência Visual (original)")
+                print("[2] Conferência Anonimizada")
+                sub = input("\nEscolha: ").strip()
+                modo = "anon" if sub == "2" else "normal"
                 try:
                     import editor_server
-                    editor_server.start_server(pasta_cliente)
+                    editor_server.start_server(pasta_cliente, modo=modo)
                 except ModuleNotFoundError:
                     print("\n❌ ERRO: O módulo 'flask' não foi encontrado neste ambiente Python.")
                     print("Por favor, instale-o rodando o comando no seu terminal:")
                     print("    pip install flask")
-            elif escolha == '6':
+            elif escolha == '7':
                 step1.limpar_memoria()
                 try:
                     import step6

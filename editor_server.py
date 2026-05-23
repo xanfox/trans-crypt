@@ -1,6 +1,8 @@
 import os
 import json
+import re
 import datetime
+import uuid
 from flask import Flask, request, jsonify
 
 import step2
@@ -8,8 +10,30 @@ import step3
 
 app = None
 
+# ================= CONFIGURAÇÃO POR MODO =================
+# Mapeia o modo ("normal" ou "anon") para os arquivos/parâmetros corretos.
+MODE_CONFIG = {
+    "normal": {
+        "html_file": "conferencia_visual.html",
+        "edits_file": "conferencia_edits.json",
+        "pasta_transcricoes": "_transcricoes",
+        "historico_saida": "historico_consolidado.txt",
+    },
+    "anon": {
+        "html_file": "conferencia_anonimizada.html",
+        "edits_file": "conferencia_edits_anonimizada.json",
+        "pasta_transcricoes": "_transcricoes_anonimizadas",
+        "historico_saida": "historico_anonimizado.txt",
+    },
+}
+
+def _cfg(key):
+    """Retorna a configuração correta para o modo atual do servidor."""
+    modo = app.config.get('MODE', 'normal')
+    return MODE_CONFIG[modo][key]
+
 def get_edits_file():
-    return os.path.join(app.config['CLIENT_FOLDER'], "conferencia_edits.json")
+    return os.path.join(app.config['CLIENT_FOLDER'], _cfg("edits_file"))
 
 def load_edits():
     path = get_edits_file()
@@ -32,21 +56,51 @@ def load_edits():
 
 def save_edits(data):
     path = get_edits_file()
-    tmp_path = path + ".tmp"
+    tmp_path = path + f".{uuid.uuid4().hex}.tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
     # Escrita atômica: previne corrupção de arquivo em caso de queda de energia
     os.replace(tmp_path, path)
 
 def rebuild_files():
-    step2.run(app.config['CLIENT_FOLDER'], auto=True)
-    step3.run(app.config['CLIENT_FOLDER'], auto=True)
+    pasta = app.config['CLIENT_FOLDER']
+    modo = app.config.get('MODE', 'normal')
+    cfg = MODE_CONFIG[modo]
+
+    if modo == "anon":
+        step2.run(pasta, auto=True,
+                  arquivo_saida=cfg["historico_saida"],
+                  arquivo_edits=cfg["edits_file"],
+                  pasta_transcricoes=cfg["pasta_transcricoes"])
+        step3.run(pasta, auto=True,
+                  nome_saida=cfg["html_file"],
+                  arquivo_edits=cfg["edits_file"],
+                  pasta_transcricoes=cfg["pasta_transcricoes"])
+    else:
+        step2.run(pasta, auto=True)
+        step3.run(pasta, auto=True)
+
+def _rebuild_html_only():
+    """Regenera apenas o HTML sem reprocessar o histórico texto (mais rápido)."""
+    pasta = app.config['CLIENT_FOLDER']
+    modo = app.config.get('MODE', 'normal')
+    cfg = MODE_CONFIG[modo]
+    if modo == "anon":
+        step3.run(pasta, auto=True,
+                  nome_saida=cfg["html_file"],
+                  arquivo_edits=cfg["edits_file"],
+                  pasta_transcricoes=cfg["pasta_transcricoes"])
+    else:
+        step3.run(pasta, auto=True)
 
 def setup_routes():
     @app.route('/')
     def index():
-        html_path = os.path.join(app.config['CLIENT_FOLDER'], "conferencia_visual.html")
+        html_path = os.path.join(app.config['CLIENT_FOLDER'], _cfg("html_file"))
         if not os.path.exists(html_path):
+            modo = app.config.get('MODE', 'normal')
+            if modo == "anon":
+                return "Conferência Anonimizada não encontrada. Rode o Passo 4 (Anonimizar) para este cliente primeiro.", 404
             return "Conferência não encontrada. Rode os passos 1, 2 e 3 primeiro.", 404
         with open(html_path, "r", encoding="utf-8") as f:
             return f.read()
@@ -61,7 +115,7 @@ def setup_routes():
             return jsonify({"error": "Faltam parâmetros"}), 400
             
         import config
-        pasta_trans = os.path.join(app.config['CLIENT_FOLDER'], config.PASTA_TRANSCRICOES)
+        pasta_trans = os.path.join(app.config['CLIENT_FOLDER'], _cfg("pasta_transcricoes"))
         base = os.path.splitext(arquivo_midia)[0]
         caminho = os.path.join(pasta_trans, base + ".txt")
         
@@ -113,12 +167,14 @@ def setup_routes():
         save_edits(edits)
         
         if arquivo_midia:
-            caminho_midia = os.path.join(app.config['CLIENT_FOLDER'], arquivo_midia)
-            if os.path.exists(caminho_midia):
-                os.remove(caminho_midia)
+            # Em modo ANONIMIZADO, NÃO apaga o arquivo de mídia original
+            # (o áudio está na pasta do cliente e pode ser necessário para re-transcrição futura)
+            if app.config.get('MODE') != 'anon':
+                caminho_midia = os.path.join(app.config['CLIENT_FOLDER'], arquivo_midia)
+                if os.path.exists(caminho_midia):
+                    os.remove(caminho_midia)
                 
-            import config
-            pasta_trans = os.path.join(app.config['CLIENT_FOLDER'], config.PASTA_TRANSCRICOES)
+            pasta_trans = os.path.join(app.config['CLIENT_FOLDER'], _cfg("pasta_transcricoes"))
             base = os.path.splitext(arquivo_midia)[0]
             caminho_txt = os.path.join(pasta_trans, base + ".txt")
             if os.path.exists(caminho_txt):
@@ -147,7 +203,7 @@ def setup_routes():
         edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
         save_edits(edits)
         # Recriamos silenciosamente apenas o html para persistir
-        step3.run(app.config['CLIENT_FOLDER'], auto=True)
+        _rebuild_html_only()
         return jsonify({"success": True})
 
     @app.route('/api/mark_all_ok', methods=['POST'])
@@ -159,7 +215,7 @@ def setup_routes():
             edits['status'][str(msg_id)] = 'ok'
         edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
         save_edits(edits)
-        step3.run(app.config['CLIENT_FOLDER'], auto=True)
+        _rebuild_html_only()
         return jsonify({"success": True})
 
     @app.route('/api/reset_all_status', methods=['POST'])
@@ -168,7 +224,7 @@ def setup_routes():
         edits['status'] = {}
         edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
         save_edits(edits)
-        step3.run(app.config['CLIENT_FOLDER'], auto=True)
+        _rebuild_html_only()
         return jsonify({"success": True})
 
     @app.route('/api/track_open', methods=['POST'])
@@ -178,12 +234,131 @@ def setup_routes():
         save_edits(edits)
         return jsonify({"success": True})
 
-def start_server(pasta_cliente):
+    # ================= ROTAS DE ANONIMIZAÇÃO INTERATIVA =================
+
+    @app.route('/api/revert_tag', methods=['POST'])
+    def revert_tag():
+        """Reverte uma tag de anonimização ao texto original.
+
+        Recebe: {"msg_id": "16", "original": "Bianca", "tag": "[NOME]"}
+        Resultado: Remove a substituição do anon_map, atualiza edited_texts
+        para repor o texto original, e regenera o HTML.
+        """
+        data = request.json
+        msg_id = str(data.get('msg_id'))
+        original_text = data.get('original')
+        tag = data.get('tag')
+
+        if not msg_id or not original_text or not tag:
+            return jsonify({"error": "Faltam parâmetros"}), 400
+
+        edits = load_edits()
+        anon_map = edits.get('anon_map', {})
+        subs = anon_map.get(msg_id, [])
+
+        removed_idx = -1
+        for i, sub in enumerate(subs):
+            if sub['original'] == original_text and sub['tag'] == tag:
+                removed_idx = i
+                break
+
+        if removed_idx == -1:
+            return jsonify({"error": "Substituição não encontrada no mapa"}), 404
+
+        arquivo_midia = data.get('arquivo_midia')
+
+        # Remove do anon_map
+        subs.pop(removed_idx)
+        if not subs:
+            del anon_map[msg_id]
+
+        # Reverte no arquivo de transcrição (se for mídia) ou no edited_texts (se for texto)
+        if arquivo_midia and app.config.get('MODE') == 'anon':
+            caminho_trans = os.path.join(app.config['CLIENT_FOLDER'], _cfg("pasta_transcricoes"))
+            base = os.path.splitext(arquivo_midia)[0]
+            caminho_txt = os.path.join(caminho_trans, base + ".txt")
+            if os.path.exists(caminho_txt):
+                with open(caminho_txt, "r", encoding="utf-8") as f:
+                    texto_atual = f.read()
+                if tag in texto_atual:
+                    texto_atual = texto_atual.replace(tag, original_text, 1)
+                    with open(caminho_txt, "w", encoding="utf-8") as f:
+                        f.write(texto_atual)
+        else:
+            texto_atual = edits.get('edited_texts', {}).get(msg_id, '')
+            if tag in texto_atual:
+                texto_atual = texto_atual.replace(tag, original_text, 1)
+                edits['edited_texts'][msg_id] = texto_atual
+
+        edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        save_edits(edits)
+        _rebuild_html_only()
+
+        return jsonify({"success": True, "original": original_text})
+
+    @app.route('/api/retag', methods=['POST'])
+    def retag():
+        """Aplica uma nova tag de anonimização a um texto previamente revertido.
+
+        Recebe: {"msg_id": "16", "original": "Bianca", "new_tag": "[LOCAL]"}
+        Resultado: Insere no anon_map, substitui no edited_texts, regenera HTML.
+        """
+        data = request.json
+        msg_id = str(data.get('msg_id'))
+        original = data.get('original')
+        new_tag = data.get('new_tag')
+
+        VALID_TAGS = {'[NOME]', '[LOCAL]', '[DATA]', '[DADO CLÍNICO]'}
+        if not msg_id or not original or new_tag not in VALID_TAGS:
+            return jsonify({"error": "Parâmetros inválidos"}), 400
+
+        edits = load_edits()
+        anon_map = edits.setdefault('anon_map', {})
+        subs = anon_map.setdefault(msg_id, [])
+
+        arquivo_midia = data.get('arquivo_midia')
+
+        # Adiciona a nova substituição
+        subs.append({
+            "original": original,
+            "tag": new_tag,
+            "type": "manual"
+        })
+
+        # Substitui no arquivo de transcrição ou no edited_texts
+        if arquivo_midia and app.config.get('MODE') == 'anon':
+            caminho_trans = os.path.join(app.config['CLIENT_FOLDER'], _cfg("pasta_transcricoes"))
+            base = os.path.splitext(arquivo_midia)[0]
+            caminho_txt = os.path.join(caminho_trans, base + ".txt")
+            if os.path.exists(caminho_txt):
+                with open(caminho_txt, "r", encoding="utf-8") as f:
+                    texto_atual = f.read()
+                if original in texto_atual:
+                    texto_atual = texto_atual.replace(original, new_tag, 1)
+                    with open(caminho_txt, "w", encoding="utf-8") as f:
+                        f.write(texto_atual)
+        else:
+            texto_atual = edits.get('edited_texts', {}).get(msg_id, '')
+            if original in texto_atual:
+                texto_atual = texto_atual.replace(original, new_tag, 1)
+                edits['edited_texts'][msg_id] = texto_atual
+
+        edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        save_edits(edits)
+        _rebuild_html_only()
+
+        return jsonify({"success": True})
+
+
+def start_server(pasta_cliente, modo="normal"):
     import webbrowser
     global app
     app = Flask(__name__, static_folder=pasta_cliente, static_url_path='')
     app.config['CLIENT_FOLDER'] = pasta_cliente
+    app.config['MODE'] = modo
     setup_routes()
+    
+    modo_label = "ANONIMIZADA" if modo == "anon" else "ORIGINAL"
     
     import socket
     def is_port_in_use(port):
@@ -201,7 +376,7 @@ def start_server(pasta_cliente):
         return
 
     print(f"\n===========================================")
-    print(f"🚀 EDITOR VISUAL INICIADO")
+    print(f"🚀 EDITOR VISUAL INICIADO — Modo: {modo_label}")
     print(f"👉 ACESSE NO NAVEGADOR: http://127.0.0.1:{port}")
     print(f"===========================================\n")
     print(f"Para encerrar o editor, pressione CTRL+C")
@@ -224,6 +399,7 @@ def start_server(pasta_cliente):
 if __name__ == '__main__':
     import sys
     if len(sys.argv) > 1:
-        start_server(sys.argv[1])
+        modo = sys.argv[2] if len(sys.argv) > 2 else "normal"
+        start_server(sys.argv[1], modo=modo)
     else:
-        print("Uso: python editor_server.py /caminho/pasta/cliente")
+        print("Uso: python editor_server.py /caminho/pasta/cliente [normal|anon]")

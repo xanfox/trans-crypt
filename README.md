@@ -102,6 +102,30 @@ Cada mensagem tem um ciclo de 4 estados ativado por clique simples no balão:
 #### Rastreio de Auditoria
 O rodapé exibe **data/hora da primeira abertura** e da **última revisão**, persistidos automaticamente em `conferencia_edits.json`.
 
+### 🕵️‍♂️ Step 4 — Motor de Anonimização (NLP Local)
+
+Processa o histórico e as transcrições utilizando **spaCy (NER)**, Regex e dicionários customizados para remover dados sensíveis, mantendo a privacidade total de forma offline (sem LLMs pesados).
+
+- Extrai automaticamente o **nome completo** e a **data de nascimento** da pasta do cliente.
+- Detecta e substitui quatro categorias de dados:
+  - `[NOME]` (via spaCy NER + substituição direta do nome da pasta)
+  - `[LOCAL]` (via spaCy NER)
+  - `[DATA]` e `[DATA NASCIMENTO]` (via Regex avançado)
+  - `[DADO CLÍNICO]` (via dicionário customizável de condições, sentimentos e medicamentos)
+- Filtra falsos positivos com uma `NER_STOPLIST` (ex: impede que divindades, planetas astrológicos ou jargões sejam classificados como locais ou nomes).
+- Gera a pasta `_transcricoes_anonimizadas` e os arquivos `historico_anonimizado.txt` e `conferencia_anonimizada.html`.
+
+### 🥷 Step 6 — Editor Visual Anonimizado (Interativo)
+
+Uma versão especializada do dashboard visual (Step 3) desenvolvida especificamente para a **auditoria de anonimização**.
+
+- As tags (ex: `[NOME]`, `[LOCAL]`) aparecem destacadas visualmente e são **clicáveis**.
+- Passar o mouse sobre uma tag exibe uma dica (*tooltip*) com o texto original (ex: `← João`).
+- **Edição em Dois Cliques:**
+  - **Clique 1:** Reverte a tag para o texto original caso tenha sido um falso positivo (sincroniza a modificação diretamente com o arquivo físico da transcrição).
+  - **Clique 2 (no texto revertido):** Abre um menu rápido para mudar a categoria da tag (ex: trocar de `[LOCAL]` para `[NOME]`), corrigindo eventuais falhas do NLP.
+- Persiste o progresso no `conferencia_edits_anonimizada.json`, separando totalmente o fluxo de auditoria normal do fluxo de privacidade.
+
 ---
 
 ## 🏎️ Benchmark de Modelos (`benchmark.py`)
@@ -179,7 +203,9 @@ trans-crypt/
 ├── step1.py             # Transcrição de áudios via Whisper
 ├── step2.py             # Consolidação do histórico em .txt
 ├── step3.py             # Geração do painel visual HTML + helpers de stats
-├── editor_server.py     # Servidor Flask para persistir edições da UI
+├── step4.py             # Motor de Anonimização (NLP + spaCy)
+├── step6.py             # Editor Visual (Interativo) para conferência final
+├── editor_server.py     # Servidor Flask para persistir edições da UI (usado no passo 3 e 6)
 ├── whatsapp_parser.py   # Parser do formato de chat exportado pelo WhatsApp
 ├── config.py            # Configurações globais (modelo, extensões, remetentes)
 ├── utils.py             # Utilitários compartilhados (menus, busca de transcrição)
@@ -190,11 +216,15 @@ trans-crypt/
         ├── _chat.txt                     # Histórico unificado (gerado pelo Step 0)
         ├── PTT-*.opus / *.m4a / ...      # Áudios exportados do WhatsApp
         ├── _transcricoes/                # Transcrições .txt (geradas pelo Step 1)
+        ├── _transcricoes_anonimizadas/   # Transcrições .txt pós-anonimização (Step 4)
         ├── _benchmark/                   # Transcrições do benchmark por modelo
         ├── historico_consolidado.txt     # Histórico completo com transcrições (Step 2)
-        ├── conferencia_visual.html       # Dashboard de auditoria (Step 3)
+        ├── historico_anonimizado.txt     # Histórico anonimizado (Step 4)
+        ├── conferencia_visual.html       # Dashboard de auditoria original (Step 3)
+        ├── conferencia_anonimizada.html  # Dashboard de auditoria anonimizada (Step 4)
         ├── conferencia_benchmark.html    # Comparativo lado a lado dos modelos
-        └── conferencia_edits.json        # Edições, status e cache de stats (persistência)
+        ├── conferencia_edits.json        # Edições, status e cache (original)
+        └── conferencia_edits_anonimizada.json # Edições e mapa de tags (anonimizado)
 ```
 
 ### Estrutura do `conferencia_edits.json`
