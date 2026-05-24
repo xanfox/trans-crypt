@@ -22,6 +22,12 @@ credentials.json
 token.json
 .DS_Store
 
+# Dicionários e Stoplists (Sensíveis)
+categorias_personas.json
+categorias_traits.json
+dicionario_traits_global.json
+ner_stoplist.csv
+
 # IDEs
 .vscode/
 .idea/
