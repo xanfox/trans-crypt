@@ -8,27 +8,7 @@ import step3
 from whatsapp_parser import parse_chat_whatsapp
 
 # ================= DICIONÁRIO DE TERMOS CLÍNICOS =================
-TERMOS_CLINICOS = [
-    "depressão", "depressao", "ansiedade", "síndrome do pânico", "sindrome do panico",
-    "pânico", "panico", "bipolar", "transtorno", "borderline", "esquizofrenia",
-    "tdah", "toc", "burnout", "estresse pós-traumático", "ptsd", "fobia",
-    "anorexia", "bulimia", "compulsão", "compulsao",
-    "diabetes", "hipertensão", "hipertensao", "câncer", "cancer", "tumor",
-    "fibromialgia", "endometriose", "tireoide", "hipotireoidismo",
-    "hipertireoidismo", "artrite", "artrose", "lúpus", "lupus", "anemia",
-    "asma", "bronquite", "pneumonia", "covid", "hiv", "aids", "hepatite",
-    "epilepsia", "parkinson", "alzheimer", "esclerose", "mioma", "cisto",
-    "hérnia", "hernia", "gastrite", "úlcera", "ulcera", "insônia", "insonia",
-    "apneia", "enxaqueca", "labirintite", "sinusite", "rinite", "dermatite",
-    "psoríase", "psoriase", "vitiligo", "trombose", "avc", "infarto",
-    "arritmia", "taquicardia", "bradicardia",
-    "rivotril", "fluoxetina", "sertralina", "escitalopram", "venlafaxina",
-    "clonazepam", "diazepam", "alprazolam", "lorazepam", "amitriptilina",
-    "paroxetina", "citalopram", "duloxetina", "ritalina", "metilfenidato",
-    "lítio", "litio", "quetiapina", "risperidona", "olanzapina", "haloperidol",
-    "carbamazepina", "valproato", "lexapro", "prozac", "zoloft", "frontal",
-    "omeprazol", "losartana", "metformina", "insulina",
-]
+# Agora os termos clínicos são geridos globalmente via step4_menu.py e dicionario_traits_global.json
 
 # ================= MOTOR NER (spaCy) =================
 _nlp = None  # Cache global
@@ -143,7 +123,7 @@ def extrair_entidades(pasta_cliente):
     return list(nomes_encontrados)
 
 # ================= MOTOR DE ANONIMIZAÇÃO =================
-def _anonimizar_texto(texto, nomes_cliente, nlp, data_nascimento, flags, personas, stoplist):
+def _anonimizar_texto(texto, nomes_cliente, nlp, data_nascimento, flags, personas, stoplist, dicionario_traits):
     if not texto.strip():
         return texto, []
 
@@ -156,6 +136,13 @@ def _anonimizar_texto(texto, nomes_cliente, nlp, data_nascimento, flags, persona
             if p_nome.lower() == nome_lower or p_nome.lower() in nome_lower.split():
                 return f"[{p_tag}]"
         return "[PERSONA]"
+
+    # 0. Personas pré-mapeadas (Fase 0)
+    if flags.get("nomes", True):
+        for p_nome, p_tag in personas.items():
+            padrao = re.compile(r'\b' + re.escape(p_nome) + r'\b', re.IGNORECASE)
+            for match in padrao.finditer(texto):
+                substituicoes.append((match.start(), match.end(), f"[{p_tag}]", "dict"))
 
     # 1. Nomes do cliente
     if flags.get("nomes", True):
@@ -187,12 +174,13 @@ def _anonimizar_texto(texto, nomes_cliente, nlp, data_nascimento, flags, persona
         for match in re.finditer(r'\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b', texto):
             substituicoes.append((match.start(), match.end(), "[DATA]", "regex"))
 
-    # 4. Termos clínicos
+    # 4. Termos clínicos (Global)
     if flags.get("clinicas", True):
-        for termo in TERMOS_CLINICOS:
+        for termo, info in dicionario_traits.get("termos", {}).items():
             padrao = re.compile(r'\b' + re.escape(termo) + r'\b', re.IGNORECASE)
+            tag = f"[TRAIT - {info['categoria']} - ID: {info['id']}]"
             for match in padrao.finditer(texto):
-                substituicoes.append((match.start(), match.end(), "[TRAIT]", "dict"))
+                substituicoes.append((match.start(), match.end(), tag, "dict"))
 
     # ── Resolver sobreposições e aplicar ──
     substituicoes.sort(key=lambda x: (x[0], -(x[1] - x[0])))
@@ -220,6 +208,9 @@ def _anonimizar_texto(texto, nomes_cliente, nlp, data_nascimento, flags, persona
 
 # ================= EXECUÇÃO =================
 def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
+    from step4_menu import load_dicionario_traits_global
+    dicionario_traits = load_dicionario_traits_global()
+
     client_name = utils.formatar_nome_display(pasta_cliente)
     chat = utils.escolher_chat_txt(pasta_cliente, auto=True)
 
@@ -262,7 +253,7 @@ def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
 
     print(f"\n🤖 Anonimizando {total} mensagens...\n")
 
-    contadores = {"nomes": 0, "locais": 0, "datas": 0, "clinicos": 0, "inalteradas": 0}
+    contadores = {"nomes": 0, "locais": 0, "datas": 0, "traits": 0, "inalteradas": 0}
 
     for idx, m in enumerate(mensagens_validas, 1):
         msg_id_str = str(m["id"])
@@ -274,13 +265,13 @@ def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
         msg_anon_map = []
         
         if texto_msg.strip():
-            texto_anon, msg_anon_map = _anonimizar_texto(texto_msg, nomes_cliente, nlp, data_nascimento, flags_anon, personas, stoplist)
+            texto_anon, msg_anon_map = _anonimizar_texto(texto_msg, nomes_cliente, nlp, data_nascimento, flags_anon, personas, stoplist, dicionario_traits)
 
         trans_anon_texto = None
         if arquivo_encontrado:
             trans_orig = utils.buscar_transcricao(pasta_trans_orig, arquivo_encontrado)
             if trans_orig:
-                trans_anon_texto, trans_map = _anonimizar_texto(trans_orig, nomes_cliente, nlp, data_nascimento, flags_anon, personas, stoplist)
+                trans_anon_texto, trans_map = _anonimizar_texto(trans_orig, nomes_cliente, nlp, data_nascimento, flags_anon, personas, stoplist, dicionario_traits)
                 msg_anon_map.extend(trans_map)
                 base_nome = os.path.splitext(arquivo_encontrado)[0]
                 with open(os.path.join(pasta_trans_anon, base_nome + ".txt"), "w", encoding="utf-8") as f:
@@ -306,7 +297,7 @@ def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
             
         if "[LOCAL]" in texto_comparar: contadores["locais"] += 1
         if "[DATA" in texto_comparar: contadores["datas"] += 1
-        if "[TRAIT]" in texto_comparar: contadores["clinicos"] += 1
+        if "[TRAIT" in texto_comparar: contadores["traits"] += 1
         
         orig_comparar = (texto_msg or "") + ((utils.buscar_transcricao(pasta_trans_orig, arquivo_encontrado) or "") if arquivo_encontrado else "")
         if texto_comparar == orig_comparar:
@@ -316,7 +307,7 @@ def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
             pct = int(idx / total * 100)
             print(f"   [{idx}/{total}] {pct}% concluído — "
                   f"Nomes/Personas:{contadores['nomes']} | Locais:{contadores['locais']} | "
-                  f"Datas:{contadores['datas']} | Clínicos:{contadores['clinicos']}")
+                  f"Datas:{contadores['datas']} | Traits:{contadores['traits']}")
 
     tmp_anon = caminho_edits_anon + f".{__import__('uuid').uuid4().hex}.tmp"
     with open(tmp_anon, "w", encoding="utf-8") as f:

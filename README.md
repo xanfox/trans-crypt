@@ -185,6 +185,15 @@ python3 benchmark.py
 
 Toda persistência do estado de auditoria (`conferencia_edits.json`) usa **escrita atômica via `os.replace()`**: os dados são primeiro escritos em um arquivo `.tmp` e só depois trocam o original de forma indivisível a nível de SO. Isso torna **matematicamente impossível** corromper o arquivo por queda de energia ou travamento durante o salvamento.
 
+### Thread-Safety no Editor Visual
+
+O servidor local (`editor_server.py`) implementa exclusão mútua global (`threading.Lock()`) em todas as rotas de edição. Isso significa que cliques rápidos na interface ou concorrência de rede nunca causarão condições de corrida (*race conditions*) na escrita do JSON, prevenindo corrupção estrutural de dados e desincronização entre arquivos físicos e o banco de dados.
+
+### Performance e Caching Inteligente
+
+- **Deduplicação de I/O:** o sistema mantém um cache robusto de mensagens em memória (`_CACHE_MENSAGENS`) e utiliza um arquivo mestre de dicionário para agilizar as substituições da pipeline de NLP.
+- **Lazy Loading de Estatísticas:** o cálculo de durações de mídia e contagem de palavras é cacheado dentro do estado de edição da página (`_stats`), eliminando a necessidade de invocar o `ffprobe` repetidas vezes.
+
 ### Tolerância a Corrupção
 
 Se um arquivo de estado for corrompido por falha de hardware ou edição externa, o sistema:

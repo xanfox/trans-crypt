@@ -5,7 +5,6 @@ import step0
 import step1
 import step2
 import step3
-import step4
 import step4_menu
 def mostrar_menu():
     print("\n" + "="*35)

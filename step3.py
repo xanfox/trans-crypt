@@ -1,7 +1,6 @@
 import html as html_module
 import json
 import os
-import re
 import subprocess
 import config
 import utils
@@ -612,10 +611,13 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
     </div>
     <button class="retag-option retag-opt-local" onclick="applyRetag('[LOCAL]')">[LOCAL]</button>
     <div class="menu-item">
-        <button class="retag-option retag-opt-data" style="width:100%;">[DATA / IDADE] ▼</button>
+        <button class="retag-option retag-opt-data" style="width:100%;">[TEMPO / DATA] ▼</button>
         <div class="submenu">
-            <button class="retag-option retag-opt-data" onclick="applyRetag('[DATA]')">[DATA COMUM]</button>
+            <button class="retag-option retag-opt-data" onclick="applyRetag('[DATA]')">[DATA]</button>
+            <button class="retag-option retag-opt-data" onclick="applyRetag('[HORA]')">[HORA]</button>
             <button class="retag-option retag-opt-data" onclick="applyRetag('[DATA NASCIMENTO]')">[DATA NASCIMENTO]</button>
+            <button class="retag-option retag-opt-data" onclick="applyRetag('[HORA NASCIMENTO]')">[HORA NASCIMENTO]</button>
+            <button class="retag-option retag-opt-data" onclick="applyRetag('[DATA IMPORTANTE]')">[DATA IMPORTANTE]</button>
         </div>
     </div>
     <div class="menu-item">
@@ -637,10 +639,13 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
     </div>
     <button class="retag-option retag-opt-local" onclick="applyManualTag('[LOCAL]')">LOCAL</button>
     <div class="menu-item">
-        <button class="retag-option retag-opt-data">DATA/IDADE ▼</button>
+        <button class="retag-option retag-opt-data">TEMPO / DATA ▼</button>
         <div class="submenu">
-            <button class="retag-option retag-opt-data" onclick="applyManualTag('[DATA]')">DATA COMUM</button>
+            <button class="retag-option retag-opt-data" onclick="applyManualTag('[DATA]')">DATA</button>
+            <button class="retag-option retag-opt-data" onclick="applyManualTag('[HORA]')">HORA</button>
             <button class="retag-option retag-opt-data" onclick="applyManualTag('[DATA NASCIMENTO]')">DATA NASCIMENTO</button>
+            <button class="retag-option retag-opt-data" onclick="applyManualTag('[HORA NASCIMENTO]')">HORA NASCIMENTO</button>
+            <button class="retag-option retag-opt-data" onclick="applyManualTag('[DATA IMPORTANTE]')">DATA IMPORTANTE</button>
         </div>
     </div>
     <div class="menu-item">

@@ -16,7 +16,6 @@ Formato de saída (salvar_chat_whatsapp):
 """
 
 import re
-from datetime import datetime
 from utils import limpar_unicode
 
 # Padrão A: 12/03/2024 15:30 - Autor: Mensagem  (Android)

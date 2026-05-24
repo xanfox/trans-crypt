@@ -52,6 +52,58 @@ def save_categorias_traits(categorias):
     with open("categorias_traits.json", "w", encoding="utf-8") as f:
         json.dump(categorias, f, indent=4, ensure_ascii=False)
 
+def load_dicionario_traits_global():
+    caminho = "dicionario_traits_global.json"
+    if not os.path.exists(caminho):
+        # Migração inicial para manter compatibilidade com TERMOS_CLINICOS antigo
+        default = {
+            "next_id": 1,
+            "termos": {}
+        }
+        with open(caminho, "w", encoding="utf-8") as f:
+            json.dump(default, f, indent=4, ensure_ascii=False)
+        return default
+    try:
+        with open(caminho, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"next_id": 1, "termos": {}}
+
+def save_dicionario_traits_global(dicionario):
+    with open("dicionario_traits_global.json", "w", encoding="utf-8") as f:
+        json.dump(dicionario, f, indent=4, ensure_ascii=False)
+
+def registrar_trait_global(termo_original, categoria_str):
+    """
+    Registra um termo no dicionário global.
+    categoria_str esperado: 'CONDIÇÃO - MENTAL' (a parte de dentro da tag TRAIT)
+    Retorna a tag ofuscada formatada: '[TRAIT - CONDIÇÃO - MENTAL - ID: X]'
+    """
+    dicionario = load_dicionario_traits_global()
+    termo_lower = termo_original.strip().lower()
+    
+    if termo_lower in dicionario["termos"]:
+        # Se já existe, retorna a tag baseada no ID existente, mas podemos 
+        # atualizar a categoria se o usuário mudou
+        item = dicionario["termos"][termo_lower]
+        item["categoria"] = categoria_str.upper()
+        tag_ofuscada = f"[TRAIT - {item['categoria']} - ID: {item['id']}]"
+        save_dicionario_traits_global(dicionario)
+        return tag_ofuscada
+
+    # Novo termo
+    novo_id = dicionario["next_id"]
+    dicionario["next_id"] += 1
+    dicionario["termos"][termo_lower] = {
+        "id": novo_id,
+        "categoria": categoria_str.upper(),
+        "original": termo_lower # guardamos o original também para referência
+    }
+    
+    save_dicionario_traits_global(dicionario)
+    return f"[TRAIT - {categoria_str.upper()} - ID: {novo_id}]"
+
+
 
 def get_todas_categorias():
     cat_tree = load_categorias_globais()
