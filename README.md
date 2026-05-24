@@ -111,7 +111,7 @@ Processa o histórico e as transcrições utilizando **spaCy (NER)**, Regex e di
   - `[NOME]` (via spaCy NER + substituição direta do nome da pasta)
   - `[LOCAL]` (via spaCy NER)
   - `[DATA]` e `[DATA NASCIMENTO]` (via Regex avançado)
-  - `[DADO CLÍNICO]` (via dicionário customizável de condições, sentimentos e medicamentos)
+  - `[TRAIT]` (via dicionário customizável de condições, sentimentos e características)
 - Filtra falsos positivos com uma `NER_STOPLIST` (ex: impede que divindades, planetas astrológicos ou jargões sejam classificados como locais ou nomes).
 - Gera a pasta `_transcricoes_anonimizadas` e os arquivos `historico_anonimizado.txt` e `conferencia_anonimizada.html`.
 
@@ -121,9 +121,14 @@ Uma versão especializada do dashboard visual (Step 3) desenvolvida especificame
 
 - As tags (ex: `[NOME]`, `[LOCAL]`) aparecem destacadas visualmente e são **clicáveis**.
 - Passar o mouse sobre uma tag exibe uma dica (*tooltip*) com o texto original (ex: `← João`).
+- **Hierarquia Dinâmica de Personas e Traits:**
+  - O sistema possui menus interativos para reclassificar entidades.
+  - **Personas:** Você pode criar categorias (ex: "Família", "Profissional") e associar novas personas on the fly. Quando a mesma pessoa é mapeada repetidas vezes, ela recebe automaticamente numerais para unificação semântica (ex: `[irmã¹]`, `[consultor²]`).
+  - **Traits:** Árvore dinâmica para mapear condições, medicações e adicções (ex: `[TRAIT - medicação estimulante]`, `[TRAIT - adicção álcool]`).
+  - **Gerenciamento Descomplicado:** Todos os itens e categorias possuem um botão `[-]` prático ao lado, permitindo limpar dicionários de configurações com um clique diretamente pela interface web.
 - **Edição em Dois Cliques:**
   - **Clique 1:** Reverte a tag para o texto original caso tenha sido um falso positivo (sincroniza a modificação diretamente com o arquivo físico da transcrição).
-  - **Clique 2 (no texto revertido):** Abre um menu rápido para mudar a categoria da tag (ex: trocar de `[LOCAL]` para `[NOME]`), corrigindo eventuais falhas do NLP.
+  - **Clique 2 (no texto revertido):** Abre um menu rápido para mudar a categoria da tag (ex: trocar de `[LOCAL]` para `[NOME]`), corrigindo eventuais falhas do NLP, ou marcando texto comum como manual.
 - Persiste o progresso no `conferencia_edits_anonimizada.json`, separando totalmente o fluxo de auditoria normal do fluxo de privacidade.
 
 ---

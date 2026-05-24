@@ -6,7 +6,7 @@ import step1
 import step2
 import step3
 import step4
-
+import step4_menu
 def mostrar_menu():
     print("\n" + "="*35)
     print("      TRANS-CRYPT - MENU GERAL")
@@ -53,7 +53,7 @@ def main():
                 step3.run(pasta_cliente)
             elif escolha == '4':
                 step1.limpar_memoria()
-                step4.run(pasta_cliente)
+                step4_menu.run(pasta_cliente)
             elif escolha == '5':
                 print("\n>>> INICIANDO PASSO 1: TRANSCRIÇÃO")
                 step1.run(pasta_cliente)

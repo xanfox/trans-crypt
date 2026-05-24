@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 
 import step2
 import step3
+import step4_menu
 
 app = None
 
@@ -123,10 +124,9 @@ def setup_routes():
             with open(caminho, "w", encoding="utf-8") as f:
                 f.write(novo_texto)
             edits = load_edits()
-            edits.pop('_stats', None)  # Invalida cache de stats (conteúdo mudou)
             edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
             save_edits(edits)
-            rebuild_files()
+            _rebuild_html_only()
             return jsonify({"success": True})
         return jsonify({"error": "Transcrição não encontrada"}), 404
 
@@ -141,10 +141,9 @@ def setup_routes():
             
         edits = load_edits()
         edits['edited_texts'][msg_id] = novo_texto
-        edits.pop('_stats', None)  # Invalida cache de stats (conteúdo mudou)
         edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
         save_edits(edits)
-        rebuild_files()
+        _rebuild_html_only()
         
         return jsonify({"success": True})
 
@@ -158,7 +157,6 @@ def setup_routes():
             return jsonify({"error": "Faltam parâmetros"}), 400
             
         edits = load_edits()
-        edits.pop('_stats', None)  # Invalida cache de stats (mensagem removida)
         # Normaliza: sempre armazena IDs como int para consistência entre Python e JSON
         deleted_int = int(msg_id)
         if deleted_int not in edits['deleted_ids']:
@@ -305,12 +303,28 @@ def setup_routes():
         """
         data = request.json
         msg_id = str(data.get('msg_id'))
-        original = data.get('original')
+        original = data.get('original', '').strip()
         new_tag = data.get('new_tag')
-
-        VALID_TAGS = {'[NOME]', '[LOCAL]', '[DATA]', '[DADO CLÍNICO]'}
-        if not msg_id or not original or new_tag not in VALID_TAGS:
+        # Validação flexível: aceita qualquer tag entre colchetes
+        if not msg_id or not original or not new_tag or not (new_tag.startswith('[') and new_tag.endswith(']')):
             return jsonify({"error": "Parâmetros inválidos"}), 400
+
+        tag_inner = new_tag[1:-1]
+
+        # Calcula idade se for data de nascimento
+        if new_tag == '[DATA NASCIMENTO]':
+            match = re.search(r'\b(19\d\d|20\d\d)\b', original)
+            if match:
+                ano = int(match.group(1))
+                idade = datetime.datetime.now().year - ano
+                new_tag = f"[DATA NASCIMENTO (~{idade} anos)]"
+        elif tag_inner not in ['DATA', 'DATA NASCIMENTO', 'LOCAL', 'NOME'] and not tag_inner.startswith('TRAIT'):
+            # É uma Persona!
+            pasta_cliente = app.config['CLIENT_FOLDER']
+            personas_ativas = step4_menu.load_personas(pasta_cliente)
+            tag_final = step4_menu.formatar_tag_persona(personas_ativas, original, tag_inner)
+            step4_menu.save_personas(pasta_cliente, personas_ativas)
+            new_tag = f"[{tag_final}]"
 
         edits = load_edits()
         anon_map = edits.setdefault('anon_map', {})
@@ -349,6 +363,235 @@ def setup_routes():
 
         return jsonify({"success": True})
 
+
+    @app.route('/api/manual_tag', methods=['POST'])
+    def manual_tag():
+        """Aplica uma tag a um texto selecionado manualmente (com cálculo de idade).
+
+        Recebe: {"msg_id": "16", "original": "21 de 10 de 1995", "tag": "[DATA]", "full_text": "...", "arquivo_midia": "..."}
+        """
+        data = request.json
+        msg_id = str(data.get('msg_id'))
+        original = data.get('original', '').strip()
+        tag = data.get('tag')
+        # Validação flexível
+        if not msg_id or not original or not tag or not (tag.startswith('[') and tag.endswith(']')):
+            return jsonify({"error": "Parâmetros inválidos"}), 400
+            
+        tag_inner = tag[1:-1]
+
+        # Calcula idade se for data de nascimento
+        if tag == '[DATA NASCIMENTO]':
+            match = re.search(r'\b(19\d\d|20\d\d)\b', original)
+            if match:
+                ano = int(match.group(1))
+                idade = datetime.datetime.now().year - ano
+                tag = f"[DATA NASCIMENTO (~{idade} anos)]"
+        elif tag_inner not in ['DATA', 'DATA NASCIMENTO', 'LOCAL', 'NOME'] and not tag_inner.startswith('TRAIT'):
+            # É uma Persona!
+            pasta_cliente = app.config['CLIENT_FOLDER']
+            personas_ativas = step4_menu.load_personas(pasta_cliente)
+            tag_final = step4_menu.formatar_tag_persona(personas_ativas, original, tag_inner)
+            step4_menu.save_personas(pasta_cliente, personas_ativas)
+            tag = f"[{tag_final}]"
+
+        edits = load_edits()
+        anon_map = edits.setdefault('anon_map', {})
+        subs = anon_map.setdefault(msg_id, [])
+
+        arquivo_midia = data.get('arquivo_midia')
+
+        # Adiciona a nova substituição
+        subs.append({
+            "original": original,
+            "tag": tag,
+            "type": "manual"
+        })
+
+        # Substitui no arquivo de transcrição ou no edited_texts
+        if arquivo_midia and app.config.get('MODE') == 'anon':
+            caminho_trans = os.path.join(app.config['CLIENT_FOLDER'], _cfg("pasta_transcricoes"))
+            base = os.path.splitext(arquivo_midia)[0]
+            caminho_txt = os.path.join(caminho_trans, base + ".txt")
+            if os.path.exists(caminho_txt):
+                with open(caminho_txt, "r", encoding="utf-8") as f:
+                    texto_atual = f.read()
+                if original in texto_atual:
+                    texto_atual = texto_atual.replace(original, tag, 1)
+                    with open(caminho_txt, "w", encoding="utf-8") as f:
+                        f.write(texto_atual)
+        else:
+            texto_atual = edits.get('edited_texts', {}).get(msg_id)
+            if not texto_atual:
+                texto_atual = full_text
+
+            if original in texto_atual:
+                texto_atual = texto_atual.replace(original, tag, 1)
+                edits['edited_texts'][msg_id] = texto_atual
+
+        edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        save_edits(edits)
+        _rebuild_html_only()
+
+        return jsonify({"success": True})
+
+
+    @app.route('/api/get_personas', methods=['GET'])
+    def get_personas():
+        tree = step4_menu.load_categorias_globais()
+        tree_traits = step4_menu.load_categorias_traits()
+        pasta_cliente = app.config['CLIENT_FOLDER']
+        ativas = step4_menu.load_personas(pasta_cliente)
+        return jsonify({"tree": tree, "tree_traits": tree_traits, "ativas": ativas})
+
+
+    @app.route('/api/add_categoria', methods=['POST'])
+    def add_categoria():
+        data = request.json
+        pai = data.get('pai')
+        nova = data.get('nova', '').strip()
+        if not nova:
+            return jsonify({"error": "Nome inválido"}), 400
+            
+        tree = step4_menu.load_categorias_globais()
+        if pai:
+            if pai in tree:
+                if nova not in tree[pai]:
+                    tree[pai].append(nova)
+            else:
+                tree[pai] = [nova]
+        else:
+            if nova not in tree:
+                tree[nova] = []
+                
+        step4_menu.save_categorias_globais(tree)
+        # Recria HTML se precisar? Normalmente a gente só atualiza via JS, 
+        # mas vamos recriar por segurança
+        _rebuild_html_only()
+        return jsonify({"success": True, "tree": tree})
+
+    @app.route('/api/remove_categoria', methods=['POST'])
+    def remove_categoria():
+        data = request.json
+        pai = data.get('pai')
+        item = data.get('item', '').strip()
+        tree = step4_menu.load_categorias_globais()
+        if pai and pai in tree:
+            if item in tree[pai]:
+                tree[pai].remove(item)
+        elif item and item in tree:
+            del tree[item]
+        step4_menu.save_categorias_globais(tree)
+        _rebuild_html_only()
+        return jsonify({"success": True, "tree": tree})
+
+    @app.route('/api/add_trait_categoria', methods=['POST'])
+    def add_trait_categoria():
+        data = request.json
+        pai = data.get('pai')
+        nova = data.get('nova', '').strip()
+        if not nova:
+            return jsonify({"error": "Nome inválido"}), 400
+            
+        tree = step4_menu.load_categorias_traits()
+        if pai:
+            if pai in tree:
+                if nova not in tree[pai]:
+                    tree[pai].append(nova)
+            else:
+                tree[pai] = [nova]
+        else:
+            if nova not in tree:
+                tree[nova] = []
+                
+        step4_menu.save_categorias_traits(tree)
+        _rebuild_html_only()
+        return jsonify({"success": True, "tree": tree})
+
+    @app.route('/api/remove_trait_categoria', methods=['POST'])
+    def remove_trait_categoria():
+        data = request.json
+        pai = data.get('pai')
+        item = data.get('item', '').strip()
+        tree = step4_menu.load_categorias_traits()
+        if pai and pai in tree:
+            if item in tree[pai]:
+                tree[pai].remove(item)
+        elif item and item in tree:
+            del tree[item]
+        step4_menu.save_categorias_traits(tree)
+        _rebuild_html_only()
+        return jsonify({"success": True, "tree": tree})
+
+
+    @app.route('/api/unify_persona', methods=['POST'])
+    def unify_persona():
+        data = request.json
+        msg_id = str(data.get('msg_id'))
+        original = data.get('original', '').strip()
+        target_persona = data.get('target_persona')
+        arquivo_midia = data.get('arquivo_midia')
+        
+        if not all([msg_id, original, target_persona]):
+            return jsonify({"error": "Parâmetros inválidos"}), 400
+            
+        pasta_cliente = app.config['CLIENT_FOLDER']
+        personas_ativas = step4_menu.load_personas(pasta_cliente)
+        
+        # Unifica: diz que a palavra original agora mapeia para a tag pronta
+        personas_ativas[original] = target_persona
+        step4_menu.save_personas(pasta_cliente, personas_ativas)
+        
+        tag = f"[{target_persona}]"
+        
+        edits = load_edits()
+        anon_map = edits.setdefault('anon_map', {})
+        subs = anon_map.setdefault(msg_id, [])
+        
+        subs.append({
+            "original": original,
+            "tag": tag,
+            "type": "manual"
+        })
+        
+        if arquivo_midia and app.config.get('MODE') == 'anon':
+            caminho_trans = os.path.join(app.config['CLIENT_FOLDER'], _cfg("pasta_transcricoes"))
+            base = os.path.splitext(arquivo_midia)[0]
+            caminho_txt = os.path.join(caminho_trans, base + ".txt")
+            if os.path.exists(caminho_txt):
+                with open(caminho_txt, "r", encoding="utf-8") as f:
+                    texto_atual = f.read()
+                if original in texto_atual:
+                    texto_atual = texto_atual.replace(original, tag, 1)
+                    with open(caminho_txt, "w", encoding="utf-8") as f:
+                        f.write(texto_atual)
+        else:
+            texto_atual = edits.get('edited_texts', {}).get(msg_id)
+            if not texto_atual:
+                texto_atual = data.get('full_text', '')
+
+            if original in texto_atual:
+                texto_atual = texto_atual.replace(original, tag, 1)
+                edits['edited_texts'][msg_id] = texto_atual
+
+        edits['last_revised'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+        save_edits(edits)
+        _rebuild_html_only()
+
+        return jsonify({"success": True})
+
+    @app.route('/api/remove_persona', methods=['POST'])
+    def remove_persona():
+        data = request.json
+        original = data.get('original', '').strip()
+        pasta_cliente = app.config['CLIENT_FOLDER']
+        personas_ativas = step4_menu.load_personas(pasta_cliente)
+        
+        if original in personas_ativas:
+            del personas_ativas[original]
+            step4_menu.save_personas(pasta_cliente, personas_ativas)
+            
+        return jsonify({"success": True})
 
 def start_server(pasta_cliente, modo="normal"):
     import webbrowser

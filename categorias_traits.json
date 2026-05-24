@@ -1,0 +1,23 @@
+{
+    "condição": [
+        "mental",
+        "físico",
+        "espiritual"
+    ],
+    "medicação": [
+        "anti depressivo",
+        "anti ansiolítico",
+        "barbitúrico",
+        "estimulante"
+    ],
+    "psicoativo": [
+        "substância lícita",
+        "substância ilícita"
+    ],
+    "adicção": [
+        "drogas",
+        "pornografia",
+        "comida",
+        "álcool"
+    ]
+}

@@ -25,3 +25,4 @@ token.json
 # IDEs
 .vscode/
 .idea/
+*.zip

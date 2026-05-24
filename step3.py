@@ -62,7 +62,14 @@ def _render_anon_tags(html_text, anon_map, msg_id_str, arq_midia=''):
     for i, sub in enumerate(msg_subs):
         tag = sub["tag"]
         original = html_module.escape(sub["original"])
-        css_class = _TAG_CSS_MAP.get(tag, "tag-nome")
+        
+        css_class = "tag-nome"
+        if "LOCAL" in tag:
+            css_class = "tag-local"
+        elif "DATA" in tag:
+            css_class = "tag-data"
+        elif "TRAIT" in tag:
+            css_class = "tag-clinico"
         
         placeholder = f"\x00ANON_{i}\x00"
         span = (f'<span class="anon-tag {css_class}" '
@@ -511,7 +518,7 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
         border-radius: 12px;
         padding: 10px;
         box-shadow: 0 8px 24px rgba(0,0,0,0.6);
-        gap: 6px;
+        gap: 10px;
         flex-direction: column;
     }
     #retagPopup.show {
@@ -536,6 +543,57 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
     .retag-opt-data { background: rgba(168,85,247,0.25); color: #c084fc; }
     .retag-opt-clinico { background: rgba(245,158,11,0.25); color: #fbbf24; }
     .retag-cancel { background: rgba(148,163,184,0.15); color: #94a3b8; }
+    /* ── Popup de seleção de texto manual ── */
+    #textSelectMenu {
+        display: none;
+        position: absolute;
+        z-index: 9999;
+        background: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 12px;
+        padding: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        gap: 6px;
+        flex-direction: row;
+    }
+    #textSelectMenu.show {
+        display: flex;
+    }
+    #textSelectMenu .retag-option {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+    .menu-item {
+        position: relative;
+        display: inline-block;
+    }
+    .submenu {
+        display: none;
+        position: absolute;
+        background: #1e293b;
+        border: 1px solid #475569;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6);
+        flex-direction: column;
+        min-width: 160px;
+        z-index: 10000;
+        padding: 4px;
+        gap: 4px;
+        white-space: nowrap;
+    }
+    /* Submenus do painel de seleção de texto (horizontal) abrem para baixo */
+    #textSelectMenu .submenu {
+        top: 100%;
+        left: 0;
+    }
+    /* Submenus do painel de retag (vertical) abrem para a direita */
+    #retagPopup .submenu {
+        top: 0;
+        left: 100%;
+    }
+    .menu-item:hover > .submenu {
+        display: flex;
+    }
 </style>
 </head>
 <body>
@@ -544,11 +602,52 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
     <button onclick="apagarSelecionado()" style="color: #ef4444;">🗑️ Apagar</button>
 </div>
 <div id="retagPopup">
-    <button class="retag-option retag-opt-nome" onclick="applyRetag('[NOME]')">[NOME]</button>
+    <div class="menu-item">
+        <button class="retag-option retag-opt-nome" style="width:100%;">[PERSONA] ▼</button>
+        <div class="submenu" id="retag-persona-submenu"></div>
+    </div>
+    <div class="menu-item" id="retag-unify-wrapper" style="display:none;">
+        <button class="retag-option retag-opt-nome" style="width:100%;">[UNIFICAR] ▼</button>
+        <div class="submenu" id="retag-unify-submenu"></div>
+    </div>
     <button class="retag-option retag-opt-local" onclick="applyRetag('[LOCAL]')">[LOCAL]</button>
-    <button class="retag-option retag-opt-data" onclick="applyRetag('[DATA]')">[DATA]</button>
-    <button class="retag-option retag-opt-clinico" onclick="applyRetag('[DADO CLÍNICO]')">[DADO CLÍNICO]</button>
+    <div class="menu-item">
+        <button class="retag-option retag-opt-data" style="width:100%;">[DATA / IDADE] ▼</button>
+        <div class="submenu">
+            <button class="retag-option retag-opt-data" onclick="applyRetag('[DATA]')">[DATA COMUM]</button>
+            <button class="retag-option retag-opt-data" onclick="applyRetag('[DATA NASCIMENTO]')">[DATA NASCIMENTO]</button>
+        </div>
+    </div>
+    <div class="menu-item">
+        <button class="retag-option retag-opt-clinico" style="width:100%;">[TRAIT] ▼</button>
+        <div class="submenu" id="retag-trait-submenu">
+        </div>
+    </div>
+    <button class="retag-option" onclick="removeTagCompletely()" style="background: rgba(239,68,68,0.15); color: #ef4444;">🗑️ Remover Tag</button>
     <button class="retag-option retag-cancel" onclick="closeRetagPopup()">✕ Cancelar</button>
+</div>
+<div id="textSelectMenu">
+    <div class="menu-item">
+        <button class="retag-option retag-opt-nome">PERSONA ▼</button>
+        <div class="submenu" id="text-persona-submenu"></div>
+    </div>
+    <div class="menu-item" id="text-unify-wrapper" style="display:none;">
+        <button class="retag-option retag-opt-nome">UNIFICAR ▼</button>
+        <div class="submenu" id="text-unify-submenu"></div>
+    </div>
+    <button class="retag-option retag-opt-local" onclick="applyManualTag('[LOCAL]')">LOCAL</button>
+    <div class="menu-item">
+        <button class="retag-option retag-opt-data">DATA/IDADE ▼</button>
+        <div class="submenu">
+            <button class="retag-option retag-opt-data" onclick="applyManualTag('[DATA]')">DATA COMUM</button>
+            <button class="retag-option retag-opt-data" onclick="applyManualTag('[DATA NASCIMENTO]')">DATA NASCIMENTO</button>
+        </div>
+    </div>
+    <div class="menu-item">
+        <button class="retag-option retag-opt-clinico">TRAIT ▼</button>
+        <div class="submenu" id="text-trait-submenu">
+        </div>
+    </div>
 </div>
 """
 
@@ -609,10 +708,10 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
     if is_anon_mode:
         html += """
     <div class="anon-legend">
-        <span class="anon-tag tag-nome">[NOME]</span>
+        <span class="anon-tag tag-nome">[PERSONA]</span>
         <span class="anon-tag tag-local">[LOCAL]</span>
         <span class="anon-tag tag-data">[DATA]</span>
-        <span class="anon-tag tag-clinico">[DADO CLÍNICO]</span>
+        <span class="anon-tag tag-clinico">[TRAIT]</span>
         <span style="font-size: 12px; color: #94a3b8; align-self: center;">← passe o mouse para ver o original</span>
     </div>
 """
@@ -971,7 +1070,195 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
     // Registra abertura do arquivo
     window.addEventListener('DOMContentLoaded', () => {
         fetch(getApiUrl() + '/api/track_open', { method: 'POST' }).catch(e => {});
+        loadPersonas();
     });
+
+    // ================= PERSONAS DINÂMICAS =================
+    function loadPersonas() {
+        fetch(getApiUrl() + '/api/get_personas').then(r => r.json()).then(data => {
+            const tree = data.tree;
+            const ativas = data.ativas;
+            
+            // Build Personas tree HTML
+            let treeHtml = '';
+            for (let grupo in tree) {
+                treeHtml += `
+                <div class="menu-item" style="width:100%; display:block;">
+                    <div style="display:flex;">
+                        <button class="retag-option retag-opt-nome" style="flex-grow:1; border-radius:0; background:rgba(239,68,68,0.1); text-align:left;">${grupo} ►</button>
+                        <button class="retag-option" style="background:rgba(239,68,68,0.2); padding: 0 8px; color: #f87171;" onclick="removeCategoria(event, null, '${grupo}')" title="Remover Categoria">-</button>
+                    </div>
+                    <div class="submenu" style="left:100%; top:0; min-width: 140px;">
+                `;
+                for (let p of tree[grupo]) {
+                    treeHtml += `
+                    <div style="display:flex;">
+                        <button class="retag-option retag-opt-nome" style="flex-grow:1; border-radius:0;" onclick="applyPersona('${p}')">${p}</button>
+                        <button class="retag-option" style="background:rgba(239,68,68,0.2); padding: 0 8px; color: #f87171;" onclick="removeCategoria(event, '${grupo}', '${p}')" title="Remover Persona">-</button>
+                    </div>`;
+                }
+                treeHtml += `
+                        <button class="retag-option" style="border-radius:0; background:rgba(255,255,255,0.1); color:#fff;" onclick="addPersona('${grupo}')">+ Nova Persona</button>
+                    </div>
+                </div>`;
+            }
+            treeHtml += `<button class="retag-option" style="background:rgba(255,255,255,0.1); color:#fff;" onclick="addCategoria()">+ Nova Categoria</button>`;
+            
+            document.getElementById('retag-persona-submenu').innerHTML = treeHtml;
+            document.getElementById('text-persona-submenu').innerHTML = treeHtml.replace(/applyPersona/g, 'applyManualPersona');
+
+            // Build Traits tree HTML
+            const treeTraits = data.tree_traits;
+            let traitsHtml = '';
+            for (let grupo in treeTraits) {
+                traitsHtml += `
+                <div class="menu-item" style="width:100%; display:block;">
+                    <div style="display:flex;">
+                        <button class="retag-option retag-opt-clinico" style="flex-grow:1; border-radius:0; background:rgba(245,158,11,0.1); text-align:left;">${grupo} ►</button>
+                        <button class="retag-option" style="background:rgba(245,158,11,0.2); padding: 0 8px; color: #fbbf24;" onclick="removeTraitCategoria(event, null, '${grupo}')" title="Remover Categoria">-</button>
+                    </div>
+                    <div class="submenu" style="left:100%; top:0; min-width: 140px;">
+                `;
+                for (let p of treeTraits[grupo]) {
+                    traitsHtml += `
+                    <div style="display:flex;">
+                        <button class="retag-option retag-opt-clinico" style="flex-grow:1; border-radius:0;" onclick="applyTrait('${grupo}', '${p}')">${p}</button>
+                        <button class="retag-option" style="background:rgba(245,158,11,0.2); padding: 0 8px; color: #fbbf24;" onclick="removeTraitCategoria(event, '${grupo}', '${p}')" title="Remover Traço">-</button>
+                    </div>`;
+                }
+                traitsHtml += `
+                        <button class="retag-option" style="border-radius:0; background:rgba(255,255,255,0.1); color:#fff;" onclick="addTrait('${grupo}')">+ Novo Traço</button>
+                    </div>
+                </div>`;
+            }
+            traitsHtml += `<button class="retag-option" style="background:rgba(255,255,255,0.1); color:#fff;" onclick="addTraitCategoria()">+ Nova Categoria</button>`;
+            
+            document.getElementById('retag-trait-submenu').innerHTML = traitsHtml;
+            document.getElementById('text-trait-submenu').innerHTML = traitsHtml.replace(/applyTrait/g, 'applyManualTrait');
+
+            // Build Unificar HTML
+            const ativasKeys = Object.keys(ativas);
+            if (ativasKeys.length > 0) {
+                document.getElementById('retag-unify-wrapper').style.display = 'inline-block';
+                document.getElementById('text-unify-wrapper').style.display = 'inline-block';
+                
+                let unifyHtml = '';
+                let unicos = {};
+                for (let k of ativasKeys) {
+                    let val = ativas[k];
+                    if(!unicos[val]) unicos[val] = [];
+                    unicos[val].push(k);
+                }
+                
+                for (let u in unicos) {
+                    let desc = u + " (" + unicos[u].join(', ') + ")";
+                    unifyHtml += `<button class="retag-option retag-opt-nome" onclick="unifyPersona('${u}')">${desc}</button>`;
+                }
+                
+                document.getElementById('retag-unify-submenu').innerHTML = unifyHtml;
+                document.getElementById('text-unify-submenu').innerHTML = unifyHtml.replace(/unifyPersona/g, 'unifyManualPersona');
+            }
+        });
+    }
+    
+    function removeCategoria(e, pai, item) {
+        e.stopPropagation();
+        if(!confirm(`Remover '${item}'?`)) return;
+        fetch(getApiUrl() + '/api/remove_categoria', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({pai: pai, item: item})
+        }).then(r=>r.json()).then(d=> { if(d.success) loadPersonas(); });
+    }
+
+    function removeTraitCategoria(e, pai, item) {
+        e.stopPropagation();
+        if(!confirm(`Remover '${item}'?`)) return;
+        fetch(getApiUrl() + '/api/remove_trait_categoria', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({pai: pai, item: item})
+        }).then(r=>r.json()).then(d=> { if(d.success) loadPersonas(); });
+    }
+
+    function addCategoria() {
+        const cat = prompt("Digite o nome da nova CATEGORIA (ex: Profissional, Amigos):");
+        if(cat) {
+            fetch(getApiUrl() + '/api/add_categoria', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({nova: cat})
+            }).then(r=>r.json()).then(d=> { if(d.success) loadPersonas(); });
+        }
+    }
+    
+    function addPersona(pai) {
+        const p = prompt(`Digite o nome da nova PERSONA para a categoria ${pai}:`);
+        if(p) {
+            fetch(getApiUrl() + '/api/add_categoria', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({pai: pai, nova: p})
+            }).then(r=>r.json()).then(d=> { if(d.success) loadPersonas(); });
+        }
+    }
+
+    function addTraitCategoria() {
+        const cat = prompt("Digite o nome da nova CATEGORIA de Traço (ex: Transtorno, Vício):");
+        if(cat) {
+            fetch(getApiUrl() + '/api/add_trait_categoria', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({nova: cat})
+            }).then(r=>r.json()).then(d=> { if(d.success) loadPersonas(); });
+        }
+    }
+    
+    function addTrait(pai) {
+        const p = prompt(`Digite o nome do novo TRAÇO para a categoria ${pai}:`);
+        if(p) {
+            fetch(getApiUrl() + '/api/add_trait_categoria', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({pai: pai, nova: p})
+            }).then(r=>r.json()).then(d=> { if(d.success) loadPersonas(); });
+        }
+    }
+
+    function applyPersona(tag) { applyRetag('[' + tag + ']'); }
+    function applyManualPersona(tag) { applyManualTag('[' + tag + ']'); }
+
+    function applyTrait(grupo, tag) { applyRetag('[TRAIT - ' + grupo + ' ' + tag + ']'); }
+    function applyManualTrait(grupo, tag) { applyManualTag('[TRAIT - ' + grupo + ' ' + tag + ']'); }
+    
+    function unifyPersona(target) {
+        if (!retagTarget) return;
+        const msgId = retagTarget.dataset.msgId;
+        const original = retagTarget.dataset.original;
+        const midia = retagTarget.dataset.midia;
+        
+        fetch(getApiUrl() + '/api/unify_persona', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ msg_id: msgId, original: original, target_persona: target, arquivo_midia: midia })
+        }).then(r=>r.json()).then(d=> { if(d.success) location.reload(); });
+    }
+    
+    function unifyManualPersona(target) {
+        if (!manualSelection.msgId) return;
+        const original = manualSelection.text;
+        if (!original) return;
+        
+        let fullText = manualSelection.container.innerText;
+        if (manualSelection.container.classList.contains('transc')) {
+            const span = manualSelection.container.querySelector('span[id^="text-"]');
+            if (span) fullText = span.innerText;
+        }
+        
+        fetch(getApiUrl() + '/api/unify_persona', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                msg_id: manualSelection.msgId, 
+                original: original, 
+                target_persona: target, 
+                arquivo_midia: manualSelection.midia,
+                full_text: fullText
+            })
+        }).then(r=>r.json()).then(d=> { if(d.success) location.reload(); });
+    }
 
     // ================= ANONIMIZAÇÃO INTERATIVA =================
     let retagTarget = null; // span atualmente sendo re-taggeado
@@ -1032,6 +1319,22 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
         retagTarget = null;
     }
 
+    function removeTagCompletely() {
+        if (!retagTarget) return;
+        
+        // Remove também da base de personas caso exista para não poluir o menu
+        fetch(getApiUrl() + '/api/remove_persona', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ original: retagTarget.dataset.original })
+        });
+
+        // A tag já foi revertida no backend. Só precisamos tirar a caixa tracejada visual.
+        const textNode = document.createTextNode(retagTarget.dataset.original);
+        retagTarget.parentNode.replaceChild(textNode, retagTarget);
+        closeRetagPopup();
+    }
+
     function applyRetag(newTag) {
         if (!retagTarget) return;
         const el = retagTarget;
@@ -1053,9 +1356,112 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
         }).catch(e => alert('Erro. Servidor não está rodando.'));
     }
 
+    // ================= SELEÇÃO MANUAL DE TEXTO =================
+    let manualSelection = { text: '', msgId: '', midia: '', container: null };
+
+    document.addEventListener('selectionchange', () => {
+        const selection = window.getSelection();
+        const menu = document.getElementById('textSelectMenu');
+        
+        if (selection.isCollapsed || !selection.toString().trim()) {
+            menu.classList.remove('show');
+            return;
+        }
+        
+        // Verifica se estamos dentro de uma mensagem ou transcrição
+        let node = selection.anchorNode;
+        let container = null;
+        while (node && node !== document.body) {
+            if (node.classList && (node.classList.contains('msg-content') || node.classList.contains('transc'))) {
+                container = node;
+                break;
+            }
+            node = node.parentNode;
+        }
+        
+        if (!container) {
+            menu.classList.remove('show');
+            return;
+        }
+
+        const msgDiv = container.closest('.msg');
+        if (!msgDiv) return;
+        
+        manualSelection.msgId = msgDiv.getAttribute('data-id');
+        manualSelection.text = selection.toString().trim();
+        manualSelection.container = container;
+        
+        // Pega mídia se for transcrição
+        const mediaTag = msgDiv.querySelector('audio, video, img');
+        manualSelection.midia = mediaTag ? mediaTag.getAttribute('src') : '';
+    });
+
+    document.addEventListener('mouseup', (e) => {
+        const selection = window.getSelection();
+        const menu = document.getElementById('textSelectMenu');
+        
+        // Se soltou o clique dentro do próprio menu, ignora (para não fechar na hora de clicar)
+        if (e.target.closest('#textSelectMenu')) return;
+
+        if (selection.isCollapsed || !selection.toString().trim()) {
+            menu.classList.remove('show');
+            return;
+        }
+        
+        if (!manualSelection.container) return;
+
+        // Posiciona o menu
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        
+        menu.style.left = Math.min(rect.left + window.scrollX, window.innerWidth - 300) + 'px';
+        menu.style.top = Math.max(0, rect.top + window.scrollY - 45) + 'px'; // Acima da seleção
+        menu.classList.add('show');
+    });
+    
+    function applyManualTag(tag) {
+        if (!manualSelection.text || !manualSelection.msgId) return;
+        
+        const menu = document.getElementById('textSelectMenu');
+        menu.classList.remove('show');
+        
+        // Pega o texto completo visível no container para o caso de não estar no backend ainda
+        let fullText = manualSelection.container.innerText;
+        // Se for transcricao, a palavra "Transcrição" aparece no início do innerText por causa da tag <b>
+        if (manualSelection.container.classList.contains('transc')) {
+            const span = manualSelection.container.querySelector('span[id^="text-"]');
+            if (span) fullText = span.innerText;
+        }
+
+        fetch(getApiUrl() + '/api/manual_tag', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                msg_id: manualSelection.msgId,
+                original: manualSelection.text,
+                tag: tag,
+                full_text: fullText,
+                arquivo_midia: manualSelection.midia
+            })
+        }).then(r => r.json()).then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Erro ao aplicar tag: ' + (data.error || 'desconhecido'));
+            }
+        }).catch(e => alert('Erro. Servidor não está rodando.'));
+        
+        // Limpa seleção do navegador para evitar bugs visuais após recarregar
+        window.getSelection().removeAllRanges();
+    }
+
     // Fecha popup com ESC
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') closeRetagPopup();
+        if (e.key === 'Escape') {
+            closeRetagPopup();
+            document.getElementById('textSelectMenu').classList.remove('show');
+            window.getSelection().removeAllRanges();
+        }
     });
 </script>
 </div></body></html>"""
