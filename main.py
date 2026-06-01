@@ -6,6 +6,7 @@ import step1
 import step2
 import step3
 import step4_menu
+import step8_stats
 def mostrar_menu():
     print("\n" + "="*35)
     print("      TRANS-CRYPT - MENU GERAL")
@@ -18,6 +19,7 @@ def mostrar_menu():
     print("[5] Rodar Passos 1 ao 3 (P/ 1 Cliente)")
     print("[6] Abrir Editor Visual (Interativo)")
     print("[7] Publicar no Google Drive (Step 6)")
+    print("[8] Estatísticas de Clientes (Stats)")
     print("[9] Sair")
     print("="*35)
 
@@ -35,6 +37,11 @@ def main():
         elif escolha == '0':
             step0.run()
             os.system("stty sane")  # ffmpeg pode bagunçar o estado do terminal
+            input("\nPressione Enter para continuar...")
+            
+        elif escolha == '8':
+            step8_stats.run()
+            os.system("stty sane")
             input("\nPressione Enter para continuar...")
             
         elif escolha in ('1', '2', '3', '4', '5', '6', '7'):

@@ -50,7 +50,7 @@ def load_edits():
                     data["status"] = {}
                 return data
         except Exception as e:
-            print(f"\\n⚠️ AVISO: O arquivo de edições está corrompido: {e}")
+            print(f"\n⚠️ AVISO: O arquivo de edições está corrompido: {e}")
             print(f"Fazendo backup para .corrupted e iniciando um estado vazio para não travar.")
             try:
                 import shutil
@@ -91,13 +91,14 @@ def _aplicar_substituicao_global(original, nova_tag, edits, pasta_cliente):
     padrao = re.compile(prefix + re.escape(original) + suffix, re.IGNORECASE)
     
     # Lista arquivos de mídia para associar transcrições a mensagens
+    import config as _config
     arquivos_midia = []
     if os.path.exists(pasta_cliente):
         for f in os.listdir(pasta_cliente):
-            if f.lower().endswith(('.ogg', '.opus', '.mp3', '.m4a', '.wav')):
+            if f.lower().endswith(_config.EXTENSOES_MIDIA_HTML):
                 arquivos_midia.append(f)
-                
-    pasta_trans_orig = os.path.join(pasta_cliente, "_transcricoes")
+
+    pasta_trans_orig = os.path.join(pasta_cliente, _config.PASTA_TRANSCRICOES)
 
     # 1. Varre Histórico (Mensagens Texto) e Associa Transcrições
     mensagens = _get_mensagens_cacheadas(pasta_cliente)
@@ -168,10 +169,10 @@ def _aplicar_reversao_global(original, tag, edits, pasta_cliente):
             texto_atual = texto_atual.replace(tag, original)
             edits['edited_texts'][msg_id_str] = texto_atual
             
-            if removed_idx != -1:
-                subs.pop(removed_idx)
-                if not subs:
-                    del anon_map[msg_id_str]
+        if removed_idx != -1:
+            subs.pop(removed_idx)
+            if not subs:
+                del anon_map[msg_id_str]
     
     # 3. Varre Transcrições e Substitui de Volta
     if is_anon:
@@ -610,6 +611,30 @@ def setup_routes():
             del personas_ativas[original]
             step4_menu.save_personas(pasta_cliente, personas_ativas)
             
+        return jsonify({"success": True})
+
+    @app.route('/api/add_stoplist', methods=['POST'])
+    def add_stoplist():
+        data = request.json
+        original = data.get('original', '').strip().lower()
+        scope = data.get('scope', 'local')
+        
+        if not original:
+            return jsonify({"error": "Parâmetros inválidos"}), 400
+            
+        pasta_cliente = app.config['CLIENT_FOLDER']
+        
+        if scope == 'global':
+            stoplist = step4_menu.load_stoplist()
+            if original not in stoplist:
+                stoplist.append(original)
+                step4_menu.save_stoplist(stoplist)
+        else:
+            stoplist = step4_menu.load_stoplist_local(pasta_cliente)
+            if original not in stoplist:
+                stoplist.append(original)
+                step4_menu.save_stoplist_local(pasta_cliente, stoplist)
+                
         return jsonify({"success": True})
 
 def start_server(pasta_cliente, modo="normal"):

@@ -22,7 +22,7 @@ def gerar_historico(pasta_cliente, mensagens_chat, arquivo_saida=config.ARQUIVO_
             with open(caminho_edits, "r", encoding="utf-8") as f:
                 edits = json.load(f)
         except Exception as e:
-            print(f"\\n⚠️ AVISO: {caminho_edits} corrompido ({e}).")
+            print(f"\n⚠️ AVISO: {caminho_edits} corrompido ({e}).")
             print("Consolidando sem as edições anteriores para evitar falha crítica do sistema.")
 
     # Normaliza deleted_ids para sempre trabalhar com int, independente de como foram salvos.

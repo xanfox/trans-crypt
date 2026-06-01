@@ -130,6 +130,21 @@ def save_stoplist(stoplist):
         for p in stoplist:
             writer.writerow([p])
 
+def load_stoplist_local(pasta_cliente):
+    arquivo = os.path.join(pasta_cliente, "stoplist_local.json")
+    if not os.path.exists(arquivo):
+        return []
+    try:
+        with open(arquivo, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_stoplist_local(pasta_cliente, stoplist):
+    arquivo = os.path.join(pasta_cliente, "stoplist_local.json")
+    with open(arquivo, "w", encoding="utf-8") as f:
+        json.dump(stoplist, f, indent=4, ensure_ascii=False)
+
 def load_personas(pasta_cliente):
     arquivo = os.path.join(pasta_cliente, "personas.json")
     if not os.path.exists(arquivo):
@@ -323,6 +338,8 @@ def run(pasta_cliente=None):
             print("\nIniciando processo de anonimização com as configurações escolhidas...")
             personas = load_personas(pasta_cliente)
             stoplist = load_stoplist()
+            stoplist_local = load_stoplist_local(pasta_cliente)
+            stoplist.extend(stoplist_local)
             step4.executar_processo(pasta_cliente, flags_anon, personas, stoplist)
             break
         elif escolha == '0':

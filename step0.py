@@ -21,19 +21,24 @@ Fluxo de execução:
     7. Move os arquivos .zip originais para `clientes/_zips_processados/` para
        evitar reprocessamento futuro.
 
-Tags de nome reconhecidas (removidas automaticamente do nome do cliente):
-    - "Conversa do WhatsApp com "  → padrão Android
-    - "WhatsApp Chat with "        → padrão iOS (inglês)
-    - "WhatsApp Chat - "           → padrão iOS (alternativo)
-    - "Lead "                      → contato que ainda não é cliente
-    - "Consulente "                → cliente com pelo menos 1 atendimento
-    - "FR "                        → lead qualificado via Free Read (leitura gratuita)
+Prefixos de nome reconhecidos (configuráveis via prefixos.csv na raiz):
+     A lista é carregada por utils.py — veja prefixos.csv para personalizar.
+     Padrões mínimos garantidos (usados como fallback se o CSV não existir):
+      - "Conversa do WhatsApp com "  → padrão Android
+      - "WhatsApp Chat with "        → padrão iOS (inglês)
+      - "WhatsApp Chat - "           → padrão iOS (alternativo)
+
+Comportamentos adicionais de limpeza:
+     - Emojis são removidos automaticamente dos nomes de pasta
+     - Caracteres iniciais inválidos ('.', '-', '_', espaço) são descartados
+     - Zips sem extensão .zip são detectados automaticamente pelo conteúdo
 
 Formato de saída de nomes de pasta:
     - Sem data de nascimento: `Marcelo Rubem Paiva`
     - Com data de nascimento:  `Marcelo Rubem Paiva - 15_03_1985`
 """
 
+import json
 import os
 import re
 import shutil
@@ -41,27 +46,30 @@ import zipfile
 from datetime import datetime
 
 import config
+import utils
 from whatsapp_parser import parse_chat_whatsapp, salvar_chat_whatsapp
-
-# ================= CONFIGURAÇÃO DE PREFIXOS =================
-# Lista de prefixos que devem ser removidos do nome do arquivo para obter
-# o nome limpo do cliente. A comparação é feita em lowercase para ser
-# case-insensitive, mas o nome final preserva o case original do arquivo.
-PREFIXES = [
-    "conversa do whatsapp com ",
-    "whatsapp chat with ",
-    "whatsapp chat - ",
-    "lead ",
-    "consulente ",
-    "fr "
-]
 
 # Nomes de pasta reservados pelo próprio Step 0 — nunca devem ser usados como
 # pasta de cliente para não corromper a estrutura de diretórios.
 NOMES_RESERVADOS = {
     config.PASTA_ZIPS_PROCESSADOS,
     config.PASTA_TEMP_ZIPS,
+    "_trash_",
 }
+
+# Regex para remover emojis e símbolos Unicode decorativos dos nomes de pasta.
+# Cobre os blocos mais comuns de emoji (Emoticons, Símbolos, Transporte, Bandeiras,
+# Dingbats, Suplementares) mais o selector de variação e o joiner de largura zero.
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FFFF"  # Emoticons, símbolos, pictogramas, transporte
+    "\U00002702-\U000027B0"  # Dingbats
+    "\u2600-\u2B55"          # Símbolos diversos (sol, lua, etc.)
+    "\uFE0F"                # Variation Selector-16 (emoji presentation)
+    "\u200D"                # Zero Width Joiner
+    "]+",
+    flags=re.UNICODE
+)
 
 # ================= FUNÇÕES =================
 
@@ -69,55 +77,79 @@ def clean_client_name(raw_name):
     """
     Deriva o nome limpo do cliente a partir do nome bruto do arquivo .zip.
 
-    O processo ocorre em 3 etapas:
-        1. Remove a extensão .zip e sufixos de cópia como " (1)", " (2)".
+    O processo ocorre em 5 etapas:
+        1. Remove a extensão .zip e sufixos de cópia como "(1)", " (2)" (com ou sem espaço).
         2. Remove iterativamente todos os prefixos conhecidos (tags do WhatsApp).
-        3. Detecta e reformata a data de nascimento no final do nome, se houver.
+        3. Remove emojis e caracteres decorativos Unicode.
+        4. Descarta caracteres iniciais inválidos ('.', '-', '_', espaço) que restam após
+           a remoção de prefixos (ex: ". Joice" → "Joice").
+        5. Detecta e reformata a data de nascimento no final do nome, se houver.
 
     Args:
         raw_name (str): Nome bruto do arquivo .zip (ex: "Conversa do WhatsApp
                         com Lead FR Marcelo Rubem Paiva 15_03_1985 (1).zip").
 
     Returns:
-        str | None: Nome limpo do cliente (ex: "Marcelo Rubem Paiva - 15_03_1985"),
-                    ou None se o resultado for vazio ou colidor com nome reservado.
+        dict | None: Dicionário com informações do cliente ou None se inválido.
     """
-    # Etapa 1: Remove sufixos de cópia do sistema operacional e a extensão .zip
-    name = re.sub(r' \(\d+\)\.zip$', '', raw_name)
-    name = re.sub(r'\.zip$', '', name)
+    # Etapa 1: Remove sufixos de cópia do sistema operacional (com ou sem espaço) e a extensão
+    name = re.sub(r'\s*\(\d+\)\.zip$', '', raw_name, flags=re.IGNORECASE)
+    name = re.sub(r'\.zip$', '', name, flags=re.IGNORECASE)
 
-    # Etapa 2: Remove os prefixos de forma iterativa (um prefixo pode esconder outro)
-    # Exemplo: "Conversa do WhatsApp com Lead FR João" → remove "Conversa do WhatsApp com "
-    # → remove "Lead " → remove "FR " → "João"
+    # Etapa 1b: Normaliza "fontes Unicode" decorativas (𝒞𝓀𝒾𝓈𝓉𝒾𝓃𝓎 → Ckistiny)
+    # para que o matching de prefixos e o nome de pasta sejam sempre legíveis.
+    name = utils.limpar_unicode(name)
+
+    # Etapa 2: Remove os prefixos de forma iterativa (lista vem de prefixos.csv via utils)
+
+    tags_found = []
     changed = True
     while changed:
         changed = False
         lower_name = name.lower()
-        for prefix in PREFIXES:
+        for prefix in utils.PREFIXES_WHATSAPP:
             if lower_name.startswith(prefix):
+                tags_found.append(prefix.strip())
                 name = name[len(prefix):].strip()
                 changed = True
                 break
 
-    # Etapa 3: Detecta data de nascimento no final do nome
+    # Etapa 3: Remove emojis e símbolos Unicode decorativos
+    name = _EMOJI_RE.sub('', name).strip()
+
+    # Etapa 4: Remove caracteres inválidos no início do nome
+    # Cobre casos como ". Joice" (ponto sobrando de prefixo) ou "- Nome" etc.
+    name = re.sub(r'^[\s.\-_]+', '', name).strip()
+
+    # Etapa 5: Detecta data de nascimento no final do nome
     # Aceita os formatos: DD_MM_YYYY, DD-MM-YYYY, DD/MM/YYYY
+    person_name = name
+    date_str_formatado = None
     match = re.search(r'^(.*?)\s*((?:\d{2}[-_/]\d{2}[-_/]\d{4}\s*)+)$', name)
     if match:
         person_name = match.group(1).strip()
+        # Remove trailing dash from person_name if it exists
+        person_name = re.sub(r'\s*-\s*$', '', person_name).strip()
         dates_raw = match.group(2).strip()
         date_match = re.search(r'\d{2}[-_/]\d{2}[-_/]\d{4}', dates_raw)
         if date_match:
             # Normaliza separadores para underscore e formata como "Nome - DD_MM_AAAA"
             date_str = date_match.group(0).replace('-', '_').replace('/', '_')
             name = f"{person_name} - {date_str}"
+            date_str_formatado = date_str.replace('_', '/')
 
     name = name.strip()
 
-    # Etapa 4: Validação — rejeita nomes vazios ou que colidam com pastas reservadas
+    # Etapa 6: Validação — rejeita nomes vazios ou que colidam com pastas reservadas
     if not name or name in NOMES_RESERVADOS:
         return None
 
-    return name
+    return {
+        "nome_pasta": name,
+        "nome": person_name,
+        "data_nascimento": date_str_formatado,
+        "tags_origem": tags_found
+    }
 
 
 def merge_messages(mensagens_listas):
@@ -186,7 +218,28 @@ def process_zips(base_dir="clientes"):
         return
 
     arquivos = os.listdir(base_dir)
-    zips = [f for f in arquivos if f.lower().endswith('.zip')]
+
+    # Detecta zips tanto pela extensão '.zip' quanto pelo conteúdo do arquivo.
+    # Isso cobre exports do WhatsApp que chegam sem a extensão (bug do app em alguns
+    # dispositivos/versões). Os sem-extensão são renomeados com '.zip' antes do processamento.
+    zips = []
+    for f in arquivos:
+        caminho_f = os.path.join(base_dir, f)
+        if not os.path.isfile(caminho_f):
+            continue
+        if f.lower().endswith('.zip'):
+            zips.append(f)
+        else:
+            # Testa se é um zip válido pelo cabeçalho do arquivo
+            try:
+                if zipfile.is_zipfile(caminho_f):
+                    novo_nome = f + '.zip'
+                    novo_caminho = os.path.join(base_dir, novo_nome)
+                    os.rename(caminho_f, novo_caminho)
+                    print(f"  ⚠️  Renomeado (sem extensão): '{f}' → '{novo_nome}'")
+                    zips.append(novo_nome)
+            except Exception:
+                pass
 
     if not zips:
         print("Nenhum arquivo .zip encontrado na pasta de clientes para extração.")
@@ -205,14 +258,23 @@ def process_zips(base_dir="clientes"):
     # Agrupa os zips pelo nome limpo do cliente
     # Ex: "Conversa...Marcelo.zip" e "Conversa...Marcelo (1).zip" → mesmo cliente
     clientes_map = {}
+    cliente_info_map = {}
     for z in zips:
-        nome_cliente = clean_client_name(z)
-        if nome_cliente is None:
+        client_info = clean_client_name(z)
+        if client_info is None:
             print(f"  ⚠️  Ignorando '{z}': não foi possível derivar um nome de cliente válido.")
             continue
-        if nome_cliente not in clientes_map:
-            clientes_map[nome_cliente] = []
-        clientes_map[nome_cliente].append(z)
+        
+        nome_pasta = client_info["nome_pasta"]
+        if nome_pasta not in clientes_map:
+            clientes_map[nome_pasta] = []
+            cliente_info_map[nome_pasta] = client_info
+        else:
+            # Merge de tags caso outro zip do mesmo cliente tenha tags diferentes
+            for tag in client_info["tags_origem"]:
+                if tag not in cliente_info_map[nome_pasta]["tags_origem"]:
+                    cliente_info_map[nome_pasta]["tags_origem"].append(tag)
+        clientes_map[nome_pasta].append(z)
 
     for nome_cliente, zips_cliente in clientes_map.items():
         print(f"📦 Processando cliente: {nome_cliente} ({len(zips_cliente)} zips)")
@@ -263,6 +325,65 @@ def process_zips(base_dir="clientes"):
             mensagens_unificadas = merge_messages(listas_mensagens)
             salvar_chat_whatsapp(mensagens_unificadas, caminho_chat_destino)
             print(f"  ➜ {len(mensagens_unificadas)} mensagens únicas salvas no histórico consolidado.")
+            
+            # Atualiza métricas de conversa
+            autor_mensagens = {}
+            autor_audios = {}
+            
+            for msg in mensagens_unificadas:
+                autor = msg['autor']
+                autor_mensagens[autor] = autor_mensagens.get(autor, 0) + 1
+                
+                # Conta mensagens que aparentam ser áudios ou mídia omitida
+                conteudo = msg.get('conteudo', '')
+                if conteudo.endswith('.opus (arquivo anexado)') or 'Mídia omitida' in conteudo or 'áudio omitido' in conteudo.lower():
+                    autor_audios[autor] = autor_audios.get(autor, 0) + 1
+
+            # Cria ou atualiza o cliente_info.json
+            caminho_json = os.path.join(pasta_destino, "cliente_info.json")
+            info_atual = cliente_info_map[nome_cliente]
+            
+            dados = {
+                "nome": info_atual["nome"],
+                "data_nascimento": info_atual["data_nascimento"],
+                "tags_origem": info_atual["tags_origem"],
+                "metricas": {
+                    "num_consultas": 0,
+                    "mensagens_por_autor": autor_mensagens,
+                    "audios_por_autor": autor_audios,
+                    "tempo_audio_minutos": 0
+                },
+                "esoterico": {
+                    "signo": None,
+                    "arcano": None
+                }
+            }
+            
+            if os.path.exists(caminho_json):
+                try:
+                    with open(caminho_json, 'r', encoding='utf-8') as f:
+                        json_existente = json.load(f)
+                    
+                    # Merge tags
+                    tags_existentes = json_existente.get("tags_origem", [])
+                    for tag in info_atual["tags_origem"]:
+                        if tag not in tags_existentes:
+                            tags_existentes.append(tag)
+                    json_existente["tags_origem"] = tags_existentes
+                    
+                    # Atualiza as métricas computadas sempre que há novos zips
+                    if "metricas" not in json_existente:
+                        json_existente["metricas"] = {}
+                    json_existente["metricas"]["mensagens_por_autor"] = autor_mensagens
+                    json_existente["metricas"]["audios_por_autor"] = autor_audios
+                    
+                    dados = json_existente
+                except Exception as e:
+                    print(f"  ⚠️  Erro ao ler cliente_info.json: {e}. Sobrescrevendo.")
+            
+            with open(caminho_json, 'w', encoding='utf-8') as f:
+                json.dump(dados, f, ensure_ascii=False, indent=2)
+            print(f"  ➜ cliente_info.json atualizado com métricas de conversa.")
 
         # Limpeza: remove a pasta temporária e arquiva os zips originais
         for z_filename in zips_cliente:

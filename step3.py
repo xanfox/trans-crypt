@@ -106,7 +106,7 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
             with open(caminho_edits, "r", encoding="utf-8") as f:
                 edits = json.load(f)
         except Exception as e:
-            print(f"\\n⚠️ AVISO: {caminho_edits} corrompido ({e}).")
+            print(f"\n⚠️ AVISO: {caminho_edits} corrompido ({e}).")
             print("Gerando interface visual sem o estado anterior salvo para evitar queda.")
 
     # Normaliza deleted_ids para sempre trabalhar com int, independente de como foram salvos.
@@ -626,6 +626,13 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
         </div>
     </div>
     <button class="retag-option" onclick="removeTagCompletely()" style="background: rgba(239,68,68,0.15); color: #ef4444;">🗑️ Remover Tag</button>
+    <div class="menu-item">
+        <button class="retag-option" style="width:100%; background: rgba(148,163,184,0.15); color: #94a3b8;">🚫 Stop List ▼</button>
+        <div class="submenu">
+            <button class="retag-option" onclick="addToStopList('local')" style="background: rgba(148,163,184,0.25); color: #cbd5e1;">Local (Neste cliente)</button>
+            <button class="retag-option" onclick="addToStopList('global')" style="background: rgba(148,163,184,0.25); color: #cbd5e1;">Global (Todos)</button>
+        </div>
+    </div>
     <button class="retag-option retag-cancel" onclick="closeRetagPopup()">✕ Cancelar</button>
 </div>
 <div id="textSelectMenu">
@@ -1285,13 +1292,15 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
             body: JSON.stringify({msg_id: msgId, original: original, tag: el.dataset.tag, arquivo_midia: midia})
         }).then(r => r.json()).then(data => {
             if (data.success) {
-                // Transforma o span de tag ativa em span revertido
-                el.className = 'anon-reverted';
-                el.removeAttribute('title');
-                el.textContent = original; // textContent evita injeção de HTML
-                el.dataset.original = original;
-                if (midia) el.dataset.midia = midia;
-                el.onclick = function() { showRetagPopup(this); };
+                // Reverte visualmente todas as ocorrências na mesma página
+                const allTags = document.querySelectorAll(`span.anon-tag[data-original="${original}"]`);
+                allTags.forEach(tagEl => {
+                    tagEl.className = 'anon-reverted';
+                    tagEl.removeAttribute('title');
+                    tagEl.textContent = original;
+                    tagEl.dataset.original = original;
+                    tagEl.onclick = function() { showRetagPopup(this); };
+                });
             } else {
                 alert('Erro ao reverter: ' + (data.error || 'desconhecido'));
             }
@@ -1326,18 +1335,46 @@ def gerar_html(mensagens, pasta_cliente, nome_saida="conferencia_visual.html",
 
     function removeTagCompletely() {
         if (!retagTarget) return;
+        const original = retagTarget.dataset.original;
         
         // Remove também da base de personas caso exista para não poluir o menu
         fetch(getApiUrl() + '/api/remove_persona', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ original: retagTarget.dataset.original })
+            body: JSON.stringify({ original: original })
         });
 
         // A tag já foi revertida no backend. Só precisamos tirar a caixa tracejada visual.
-        const textNode = document.createTextNode(retagTarget.dataset.original);
-        retagTarget.parentNode.replaceChild(textNode, retagTarget);
+        const allReverted = document.querySelectorAll(`span.anon-reverted[data-original="${original}"]`);
+        allReverted.forEach(tagEl => {
+            const textNode = document.createTextNode(original);
+            tagEl.parentNode.replaceChild(textNode, tagEl);
+        });
         closeRetagPopup();
+    }
+
+    function addToStopList(scope) {
+        if (!retagTarget) return;
+        const original = retagTarget.dataset.original;
+        
+        fetch(getApiUrl() + '/api/add_stoplist', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ original: original, scope: scope })
+        }).then(() => {
+            fetch(getApiUrl() + '/api/remove_persona', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ original: original })
+            });
+            
+            const allReverted = document.querySelectorAll(`span.anon-reverted[data-original="${original}"]`);
+            allReverted.forEach(tagEl => {
+                const textNode = document.createTextNode(original);
+                tagEl.parentNode.replaceChild(textNode, tagEl);
+            });
+            closeRetagPopup();
+        });
     }
 
     function applyRetag(newTag) {

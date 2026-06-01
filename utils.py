@@ -1,5 +1,62 @@
+import csv
 import os
+import unicodedata
+from pathlib import Path
 import config
+
+
+# ================= PREFIXOS DE NOME (fonte única) =================
+
+# Prefixos mínimos garantidos mesmo sem o CSV (só os que o próprio WhatsApp gera).
+_PREFIXES_FALLBACK = [
+    "conversa do whatsapp com ",
+    "whatsapp chat with ",
+    "whatsapp chat - ",
+]
+
+# Caminho do CSV na raiz do projeto (mesmo diretório onde utils.py está).
+_CSV_PREFIXOS = Path(__file__).parent / "prefixos.csv"
+
+
+def _carregar_prefixos() -> list[str]:
+    """Lê prefixos.csv e retorna a lista de prefixos em lowercase.
+
+    O CSV deve ter (pelo menos) uma coluna chamada 'prefixo'.
+    Linhas em branco e comentários (#) são ignorados.
+    Se o arquivo não existir, retorna os prefixos padrão do WhatsApp.
+
+    Formato esperado::
+
+        prefixo,descricao
+        lead ,Contato pre-cliente
+        consulente ,Cliente com atendimento
+
+    Returns:
+        list[str]: Lista de strings em lowercase prontas para comparação.
+    """
+    if not _CSV_PREFIXOS.exists():
+        print(
+            f"⚠️  prefixos.csv não encontrado em {_CSV_PREFIXOS}. "
+            "Usando apenas os prefixos padrão do WhatsApp."
+        )
+        return _PREFIXES_FALLBACK[:]
+
+    prefixos = []
+    with open(_CSV_PREFIXOS, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            raw = row.get("prefixo", "").lstrip()  # preserva espaço final intencional
+            if raw and not raw.startswith("#"):
+                prefixos.append(raw.lower())
+
+    if not prefixos:
+        return _PREFIXES_FALLBACK[:]
+
+    return prefixos
+
+
+# Lista carregada uma única vez no import — consumida por step0.py e utils.py.
+PREFIXES_WHATSAPP: list[str] = _carregar_prefixos()
 
 def escolher_pasta_cliente():
     """Exibe um menu para escolher o diretório do cliente e retorna o caminho absoluto/relativo."""
@@ -87,9 +144,22 @@ def buscar_transcricao(pasta_transcricoes, arquivo_midia):
     return None
 
 def limpar_unicode(txt):
-    """Remove caracteres invisíveis (RTL, LTR) do texto exportado do WhatsApp."""
+    """Remove caracteres invisíveis (RTL, LTR) e normaliza fontes Unicode decorativas.
+
+    Além dos caracteres de controle do WhatsApp (RTL, BOM, etc.), converte as
+    chamadas "fontes Unicode" — blocos de caracteres matemáticos/cursivos como
+    𝒞𝓀𝒾𝓈𝓉𝒾𝓃𝓎 — de volta para suas letras latinas normais usando NFKD.
+    Isso evita que nomes estilizados quebrem o matching de nomes e o NER.
+    """
+    # Etapa 1: Remove caracteres de controle do WhatsApp (RTL, BOM, etc.)
     for c in config.UNICODE_LIXO:
         txt = txt.replace(c, "")
+
+    # Etapa 2: NFKC converte "fontes Unicode" decorativas para letras normais
+    # (𝒞𝓀𝒾𝓈𝓉𝒾𝓃𝓎 → Ckistiny, 𝔽𝕠𝕟𝕥𝕖 → Fonte) preservando acentos do português
+    # (ã, é, ç, etc.) — NFKC recompõe os combining marks latinos automaticamente.
+    txt = unicodedata.normalize("NFKC", txt)
+
     return txt.strip()
 
 
@@ -107,23 +177,14 @@ def formatar_nome_display(pasta_cliente):
     """
     import re
 
-    PREFIXOS = [
-        "conversa do whatsapp com ",
-        "whatsapp chat with ",
-        "whatsapp chat - ",
-        "lead ",
-        "consulente ",
-        "fr ",
-    ]
-
     nome = os.path.basename(pasta_cliente.rstrip('/\\'))
 
-    # Remove prefixos iterativamente (case-insensitive)
+    # Remove prefixos iterativamente (case-insensitive) — lista vem de prefixos.csv
     alterou = True
     while alterou:
         alterou = False
         lower = nome.lower()
-        for prefixo in PREFIXOS:
+        for prefixo in PREFIXES_WHATSAPP:
             if lower.startswith(prefixo):
                 nome = nome[len(prefixo):].strip()
                 alterou = True

@@ -11,9 +11,11 @@ O sistema foi projetado para o fluxo real de trabalho de um profissional que ate
 ### 📦 Step 0 — Extração e Organização Inteligente de Backups
 
 - Detecta e extrai automaticamente arquivos `.zip` exportados do WhatsApp depositados na pasta `clientes/`.
-- Remove tags de qualificação do nome do arquivo (`Lead`, `Consulente`, `FR`, `Conversa do WhatsApp com`, etc.) para criar nomes de pasta limpos e padronizados.
+- Remove tags de qualificação do nome do arquivo (`Lead`, `Consulente`, `FR`, `Conversa do WhatsApp com`, etc.) usando a lista configurável `prefixos.csv`.
+- **Normalização Unicode (NFKC):** nomes escritos com "fontes decorativas" do WhatsApp (𝒞𝓀𝒾𝓈𝓉𝒾𝓃𝓎 → Ckistiny) são normalizados automaticamente, evitando pastas duplicadas e falhas de NER.
 - Agrupa múltiplos backups do mesmo cliente (incluindo cópias como `arquivo (1).zip`) e os processa em conjunto.
 - **Mesclagem cronológica inteligente:** quando há dois backups do mesmo cliente (um parcial e um mais completo), o sistema combina ambos, elimina mensagens duplicadas e reconstrói o histórico em ordem cronológica correta.
+- Gera automaticamente o **`cliente_info.json`** com nome, data de nascimento, tags de origem e métricas de conversa (mensagens e áudios por autor).
 - Arquiva os `.zip` originais em `_zips_processados/` após processamento para evitar reprocessamento acidental.
 
 ### 🎙️ Step 1 — Transcrição de Áudio de Alta Precisão
@@ -113,14 +115,19 @@ Processa o histórico e as transcrições utilizando **spaCy (NER)**, Regex e di
   - `[DATA]` e `[DATA NASCIMENTO]` (via Regex avançado)
   - `[TRAIT]` (via dicionário customizável de condições, sentimentos e características)
 - Filtra falsos positivos com uma `NER_STOPLIST` (ex: impede que divindades, planetas astrológicos ou jargões sejam classificados como locais ou nomes).
+- **Stop List em dois escopos:**
+  - **Local** (`stoplist_local.json` na pasta do cliente): exclusões válidas apenas para aquele cliente.
+  - **Global** (`ner_stoplist.csv` na raiz): exclusões aplicadas a todos os clientes.
+  - Ambas podem ser gerenciadas diretamente pela interface web com um clique.
 - Gera a pasta `_transcricoes_anonimizadas` e os arquivos `historico_anonimizado.txt` e `conferencia_anonimizada.html`.
 
-### 🥷 Step 6 — Editor Visual Anonimizado (Interativo)
+### 🥷 Editor Visual Anonimizado (Interativo)
 
 Uma versão especializada do dashboard visual (Step 3) desenvolvida especificamente para a **auditoria de anonimização**.
 
 - As tags (ex: `[NOME]`, `[LOCAL]`) aparecem destacadas visualmente e são **clicáveis**.
 - Passar o mouse sobre uma tag exibe uma dica (*tooltip*) com o texto original (ex: `← João`).
+- **Reversão Global:** reverter uma tag reverte *todas* as ocorrências do mesmo texto na página simultaneamente — não apenas a instância clicada.
 - **Hierarquia Dinâmica de Personas e Traits:**
   - O sistema possui menus interativos para reclassificar entidades.
   - **Personas:** Você pode criar categorias (ex: "Família", "Profissional") e associar novas personas on the fly. Quando a mesma pessoa é mapeada repetidas vezes, ela recebe automaticamente numerais para unificação semântica (ex: `[irmã¹]`, `[consultor²]`).
@@ -128,8 +135,27 @@ Uma versão especializada do dashboard visual (Step 3) desenvolvida especificame
   - **Gerenciamento Descomplicado:** Todos os itens e categorias possuem um botão `[-]` prático ao lado, permitindo limpar dicionários de configurações com um clique diretamente pela interface web.
 - **Edição em Dois Cliques:**
   - **Clique 1:** Reverte a tag para o texto original caso tenha sido um falso positivo (sincroniza a modificação diretamente com o arquivo físico da transcrição).
-  - **Clique 2 (no texto revertido):** Abre um menu rápido para mudar a categoria da tag (ex: trocar de `[LOCAL]` para `[NOME]`), corrigindo eventuais falhas do NLP, ou marcando texto comum como manual.
+  - **Clique 2 (no texto revertido):** Abre um menu rápido para mudar a categoria da tag (ex: trocar de `[LOCAL]` para `[NOME]`), ou marcar para Stop List local/global.
 - Persiste o progresso no `conferencia_edits_anonimizada.json`, separando totalmente o fluxo de auditoria normal do fluxo de privacidade.
+
+### 📊 Step 8 — Estatísticas de Clientes (Stats)
+
+Painel de análise global que lê **todos os clientes** da base de dados sem precisar selecionar um cliente específico.
+
+- Exibe o **total de clientes únicos** com `cliente_info.json` e o **total global de mensagens** do sistema.
+- **Lista completa de clientes** com ordenação interativa por qualquer métrica disponível:
+
+| Categoria de Ordenação | Campo |
+|---|---|
+| Nome | Ordem alfabética do nome |
+| Data de Nascimento | Cronológica pela data |
+| Número de Consultas | Frequência de atendimento |
+| Total de Mensagens | Volume de mensagens trocadas |
+| Total de Áudios | Quantidade de áudios enviados |
+| Tempo de Áudio (min) | Minutos de áudio acumulados |
+
+- Suporte a ordem **crescente** e **decrescente** para cada categoria.
+- Estruturado como submenu expansível — pronto para receber novas visualizações estatísticas no futuro.
 
 ---
 
@@ -218,27 +244,58 @@ trans-crypt/
 ├── step2.py             # Consolidação do histórico em .txt
 ├── step3.py             # Geração do painel visual HTML + helpers de stats
 ├── step4.py             # Motor de Anonimização (NLP + spaCy)
-├── step6.py             # Editor Visual (Interativo) para conferência final
-├── editor_server.py     # Servidor Flask para persistir edições da UI (usado no passo 3 e 6)
+├── step4_menu.py        # Menu interativo de configuração do Step 4
+├── step8_stats.py       # Estatísticas globais de clientes (Stats)
+├── step6.py             # Publicação no Google Drive
+├── editor_server.py     # Servidor Flask para persistir edições da UI (passos 3 e 4)
 ├── whatsapp_parser.py   # Parser do formato de chat exportado pelo WhatsApp
 ├── config.py            # Configurações globais (modelo, extensões, remetentes)
-├── utils.py             # Utilitários compartilhados (menus, busca de transcrição)
+├── utils.py             # Utilitários compartilhados (menus, busca de transcrição, prefixos)
+├── prefixos.csv         # Lista de prefixos de tags removidos do nome dos clientes (editável)
 ├── requirements.txt     # Dependências Python
 └── clientes/            # Dados dos clientes (bloqueado pelo .gitignore)
     ├── _zips_processados/        # Zips arquivados após extração pelo Step 0
     └── Nome do Cliente/          # Uma pasta por cliente
-        ├── _chat.txt                     # Histórico unificado (gerado pelo Step 0)
-        ├── PTT-*.opus / *.m4a / ...      # Áudios exportados do WhatsApp
-        ├── _transcricoes/                # Transcrições .txt (geradas pelo Step 1)
-        ├── _transcricoes_anonimizadas/   # Transcrições .txt pós-anonimização (Step 4)
-        ├── _benchmark/                   # Transcrições do benchmark por modelo
-        ├── historico_consolidado.txt     # Histórico completo com transcrições (Step 2)
-        ├── historico_anonimizado.txt     # Histórico anonimizado (Step 4)
-        ├── conferencia_visual.html       # Dashboard de auditoria original (Step 3)
-        ├── conferencia_anonimizada.html  # Dashboard de auditoria anonimizada (Step 4)
-        ├── conferencia_benchmark.html    # Comparativo lado a lado dos modelos
-        ├── conferencia_edits.json        # Edições, status e cache (original)
-        └── conferencia_edits_anonimizada.json # Edições e mapa de tags (anonimizado)
+        ├── _chat.txt                          # Histórico unificado (gerado pelo Step 0)
+        ├── cliente_info.json                  # Metadados e métricas do cliente (Step 0)
+        ├── PTT-*.opus / *.m4a / ...           # Áudios exportados do WhatsApp
+        ├── _transcricoes/                     # Transcrições .txt (geradas pelo Step 1)
+        ├── _transcricoes_anonimizadas/        # Transcrições pós-anonimização (Step 4)
+        ├── _benchmark/                        # Transcrições do benchmark por modelo
+        ├── historico_consolidado.txt          # Histórico completo com transcrições (Step 2)
+        ├── historico_anonimizado.txt          # Histórico anonimizado (Step 4)
+        ├── conferencia_visual.html            # Dashboard de auditoria original (Step 3)
+        ├── conferencia_anonimizada.html       # Dashboard de auditoria anonimizada (Step 4)
+        ├── conferencia_benchmark.html         # Comparativo lado a lado dos modelos
+        ├── conferencia_edits.json             # Edições, status e cache (original)
+        ├── conferencia_edits_anonimizada.json # Edições e mapa de tags (anonimizado)
+        └── stoplist_local.json               # Stop list local do cliente (Step 4)
+```
+
+### Estrutura do `cliente_info.json`
+
+```json
+{
+  "nome": "Marcelo Rubem Paiva",
+  "data_nascimento": "15/03/1985",
+  "tags_origem": ["lead", "fr"],
+  "metricas": {
+    "num_consultas": 0,
+    "mensagens_por_autor": {
+      "Consulente Marcelo Rubem Paiva": 142,
+      "Terapeuta": 310
+    },
+    "audios_por_autor": {
+      "Consulente Marcelo Rubem Paiva": 18,
+      "Terapeuta": 45
+    },
+    "tempo_audio_minutos": 0
+  },
+  "esoterico": {
+    "signo": null,
+    "arcano": null
+  }
+}
 ```
 
 ### Estrutura do `conferencia_edits.json`
@@ -263,17 +320,22 @@ trans-crypt/
 
 ---
 
-## 🏷️ Sistema de Tags de Clientes (Step 0)
+## 🏷️ Sistema de Prefixos Configurável (`prefixos.csv`)
 
-O Step 0 reconhece e remove automaticamente tags de qualificação do nome dos arquivos `.zip`:
+O Step 0 reconhece e remove automaticamente tags de qualificação do nome dos arquivos `.zip`. A lista de prefixos é **totalmente editável** via `prefixos.csv` na raiz do projeto — sem precisar tocar no código.
 
-| Tag no arquivo | Significado |
-|---|---|
-| `Conversa do WhatsApp com` | Prefixo padrão do Android |
-| `WhatsApp Chat with` | Prefixo padrão do iOS |
-| `Lead` | Contato em prospecção |
-| `Consulente` | Cliente com atendimento realizado |
-| `FR` | Lead qualificado via Free Read |
+**Formato do CSV:**
+
+```csv
+prefixo,descricao
+conversa do whatsapp com ,Padrao Android do WhatsApp
+whatsapp chat with ,Padrao iOS do WhatsApp (ingles)
+lead ,Contato pre-cliente (sem atendimento)
+consulente ,Cliente com pelo menos 1 atendimento
+fr ,Lead qualificado via Free Read
+```
+
+> ⚠️ O espaço ao final do prefixo é intencional — ele garante que `"lead "` não remova `"leadership"`.
 
 **Exemplo de renomeação:**
 
@@ -291,7 +353,7 @@ Conversa do WhatsApp com Lead FR Marcelo Rubem Paiva 15_03_1985.zip
      ↓
 Deposite o .zip em clientes/
      ↓
-[main.py] → Opção 0: Extrai, organiza e mescla backups
+[main.py] → Opção 0: Extrai, organiza e mescla backups → gera cliente_info.json
      ↓
 [main.py] → Opção 1: Transcreve os áudios (Whisper large-v3)
      ↓                  ↳ RAM liberada automaticamente ao avançar
@@ -299,11 +361,26 @@ Deposite o .zip em clientes/
      ↓
 [main.py] → Opção 3: Gera o painel visual HTML
      ↓
-[main.py] → Opção 5: Abre o Editor Visual no navegador
+[main.py] → Opção 6: Abre o Editor Visual no navegador
      ↓
 Confira áudios ▶ edite transcrições ✏️ marque status ✅⭐⚠️
      ↓
 "Marcar Pendentes Como Conferido" quando a revisão estiver completa
+     ↓
+[main.py] → Opção 8: Visualize estatísticas globais de todos os clientes
+```
+
+### Fluxo de Anonimização
+
+```
+[main.py] → Opção 4: Anonimizar Histórico
+     ↓
+Configure o nível de anonimização e as personas/traits
+     ↓
+[main.py] → Opção 6: Abrir Editor Anonimizado
+     ↓
+Clique em tags para reverter falsos positivos
+Adicione à Stop List local ou global com um clique
 ```
 
 ### Fluxo de Benchmark (Comparação de Modelos)
@@ -391,9 +468,10 @@ python3 benchmark.py
 | **faster-whisper** | Motor de transcrição de áudio com IA — 100% local |
 | **FFmpeg / ffprobe** | Conversão de áudio para Whisper e cálculo de durações |
 | **Flask** | Servidor backend leve para persistir edições da UI |
+| **spaCy** | NER (Reconhecimento de Entidades Nomeadas) para anonimização |
 | **HTML / CSS / Vanilla JS** | Dashboard de auditoria sem dependências Node/NPM |
 | **JSON + escrita atômica** | Camada de persistência blindada contra corrupção por queda de energia |
 
 ---
 
-> **Nota de Privacidade:** O TransCrypt não possui chaves de API, telemetria ou conexões externas. A transcrição roda **100% localmente** via Whisper. Todos os dados de clientes (áudios, transcrições e históricos) são bloqueados via `.gitignore`.
+> **Nota de Privacidade:** O TransCrypt não possui chaves de API, telemetria ou conexões externas. A transcrição roda **100% localmente** via Whisper. Todos os dados de clientes (áudios, transcrições, históricos e dicionários de personas) são bloqueados via `.gitignore`.

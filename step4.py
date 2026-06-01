@@ -85,8 +85,10 @@ def extrair_entidades(pasta_cliente):
         return []
         
     # Precisamos varrer textos e transcricoes
-    from step4_menu import load_stoplist
+    from step4_menu import load_stoplist, load_stoplist_local
     stoplist = load_stoplist()
+    stoplist_local = load_stoplist_local(pasta_cliente)
+    stoplist.extend(stoplist_local)
     
     pasta_trans_orig = os.path.join(pasta_cliente, config.PASTA_TRANSCRICOES)
     arquivos_midia = [f for f in os.listdir(pasta_cliente) if f.lower().endswith(config.EXTENSOES_MIDIA_HTML)]
@@ -288,12 +290,11 @@ def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
         texto_comparar = (texto_anon or "") + (trans_anon_texto or "")
         
         # Check logic based on tags
-        for p in personas.values():
-            if f"[{p}]" in texto_comparar:
-                contadores["nomes"] += 1
-                break
-        else:
-            if "[PERSONA]" in texto_comparar: contadores["nomes"] += 1
+        encontrou_nome = any(f"[{p}]" in texto_comparar for p in personas.values())
+        if not encontrou_nome:
+            encontrou_nome = "[PERSONA]" in texto_comparar
+        if encontrou_nome:
+            contadores["nomes"] += 1
             
         if "[LOCAL]" in texto_comparar: contadores["locais"] += 1
         if "[DATA" in texto_comparar: contadores["datas"] += 1
@@ -332,12 +333,21 @@ def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
     )
 
 def run(pasta_cliente=None):
-    from step4_menu import load_stoplist, load_personas
+    """Ponto de entrada direto do step4 (sem menu interativo).
+    
+    Executa com todas as flags ativas (Nível 4 completo) e carrega
+    personas/stoplist existentes da pasta do cliente.
+    Para configuração interativa, use step4_menu.run().
+    """
+    from step4_menu import load_stoplist, load_stoplist_local, load_personas
     if not pasta_cliente:
         pasta_cliente = utils.escolher_pasta_cliente()
+    # Nível 4: anonimiza tudo (nomes, datas, locais e clínicas)
     flags_anon = {"nomes": True, "datas": True, "locais": True, "clinicas": True}
     personas = load_personas(pasta_cliente)
     stoplist = load_stoplist()
+    stoplist_local = load_stoplist_local(pasta_cliente)
+    stoplist.extend(stoplist_local)
     executar_processo(pasta_cliente, flags_anon, personas, stoplist)
 
 if __name__ == '__main__':
