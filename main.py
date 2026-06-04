@@ -62,7 +62,7 @@ def main():
                 step4_menu.run(pasta_cliente)
             elif escolha == '5':
                 print("\n>>> INICIANDO PASSO 1: TRANSCRIÇÃO")
-                step1.run(pasta_cliente)
+                step1.run(pasta_cliente, interativo=False)
                 step1.limpar_memoria()
                 print("\n>>> INICIANDO PASSO 2: HISTÓRICO")
                 step2.run(pasta_cliente)

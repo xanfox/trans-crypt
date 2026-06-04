@@ -60,6 +60,18 @@ PROCESSAMENTO_PARALELO_ARQUIVOS = max(1, (os.cpu_count() or 4) // 2)
 # Lixo unicode para limpar nas leituras
 UNICODE_LIXO = ["\u200e", "\u202a", "\u202c", "\ufeff"]
 
+# ================= ESTIMATIVA DE TEMPO (Step 1) =================
+# RTF real medido em benchmark (segundos de proc. por segundo de áudio).
+# Usado para estimar o tempo de transcrição antes de iniciar.
+# Atualize após rodar benchmark.py na sua máquina para valores mais precisos.
+WHISPER_RTF = {
+    "tiny":           0.093,
+    "small":          0.493,
+    "medium":         1.397,
+    "large-v3-turbo": 1.399,
+    "large-v3":       2.394,
+}
+
 # ================= GOOGLE DRIVE =================
 # ID da pasta onde as transcrições serão salvas (extraído da URL da pasta no Drive)
 GOOGLE_DRIVE_FOLDER_ID = "14wm9J0B_eZPiQI-P30LNbIxWLtrEUA6p"
