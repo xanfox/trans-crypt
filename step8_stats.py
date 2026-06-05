@@ -57,12 +57,13 @@ def mostrar_geral():
                         "nome": nome,
                         "data_nascimento": data_nascimento,
                         "num_consultas": num_consultas,
+                        "num_feedbacks": metricas.get("num_feedbacks", 0),
                         "total_mensagens": total_mensagens,
                         "total_audios": total_audios,
                         "tempo_audio": tempo_audio
                     })
             except Exception as e:
-                pass
+                print(f"  ⚠️  Ignorando '{pasta}': cliente_info.json inválido ({e})")
                 
     print(f"\n✅ Total de Clientes Únicos: {len(clientes_dados)}")
     print(f"💬 Total de Mensagens (Global): {total_mensagens_geral}")
@@ -104,8 +105,15 @@ def mostrar_geral():
         reverse = True
         
     # Ordenar
+    # BUG-A1 CORRIGIDO: ordenação cronológica real (DD/MM/AAAA → tuple AAAA, MM, DD)
     if chave_sort == 'data_nascimento':
-        clientes_dados.sort(key=lambda x: str(x[chave_sort]), reverse=reverse)
+        def _parse_data(x):
+            try:
+                d, m, a = str(x[chave_sort]).split('/')
+                return (int(a), int(m), int(d))
+            except Exception:
+                return (0, 0, 0)
+        clientes_dados.sort(key=_parse_data, reverse=reverse)
     elif chave_sort == 'nome':
         clientes_dados.sort(key=lambda x: str(x[chave_sort]).lower(), reverse=reverse)
     else:

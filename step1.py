@@ -580,6 +580,8 @@ def run(pasta_cliente=None, interativo=True):
         if not analise["pendentes"]:
             _mostrar_painel_analise(analise)
             print("\n✅ Todos os áudios já foram transcritos!")
+            # BUG-A3 CORRIGIDO: atualiza sessões mesmo quando não há novos áudios
+            _atualizar_sessoes_no_json(pasta_cliente)
             return
 
         _mostrar_painel_analise(analise)

@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import uuid
 import config
 import utils
 import step2
@@ -60,9 +61,11 @@ def _extrair_identidade_cliente(pasta_cliente, mensagens_chat):
             continue
 
         autor_limpo = re.sub(r'[^\w\s]', '', autor).strip()
-        for prefixo in ("Lead", "FR", "lead", "fr", "Consulente", "consulente"):
-            if autor_limpo.lower().startswith(prefixo.lower()):
-                autor_limpo = autor_limpo[len(prefixo):].strip()
+        # BUG-A2 CORRIGIDO: usa prefixos do CSV em vez de lista hardcoded
+        for prefixo in utils.PREFIXES_WHATSAPP:
+            if autor_limpo.lower().startswith(prefixo.strip()):
+                autor_limpo = autor_limpo[len(prefixo.strip()):].strip()
+                break
 
         if autor_limpo:
             nomes.add(autor_limpo)
@@ -288,19 +291,21 @@ def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
             edits_anon.setdefault("anon_map", {})[msg_id_str] = msg_anon_map
 
         texto_comparar = (texto_anon or "") + (trans_anon_texto or "")
-        
+
         # Check logic based on tags
         encontrou_nome = any(f"[{p}]" in texto_comparar for p in personas.values())
         if not encontrou_nome:
             encontrou_nome = "[PERSONA]" in texto_comparar
         if encontrou_nome:
             contadores["nomes"] += 1
-            
+
         if "[LOCAL]" in texto_comparar: contadores["locais"] += 1
         if "[DATA" in texto_comparar: contadores["datas"] += 1
         if "[TRAIT" in texto_comparar: contadores["traits"] += 1
-        
-        orig_comparar = (texto_msg or "") + ((utils.buscar_transcricao(pasta_trans_orig, arquivo_encontrado) or "") if arquivo_encontrado else "")
+
+        # BUG-M3 CORRIGIDO: reutiliza trans_orig já lida, sem nova leitura de disco
+        orig_trans = trans_orig if arquivo_encontrado and 'trans_orig' in dir() else ""
+        orig_comparar = (texto_msg or "") + (orig_trans or "")
         if texto_comparar == orig_comparar:
             contadores["inalteradas"] += 1
 
@@ -310,7 +315,7 @@ def executar_processo(pasta_cliente, flags_anon, personas, stoplist):
                   f"Nomes/Personas:{contadores['nomes']} | Locais:{contadores['locais']} | "
                   f"Datas:{contadores['datas']} | Traits:{contadores['traits']}")
 
-    tmp_anon = caminho_edits_anon + f".{__import__('uuid').uuid4().hex}.tmp"
+    tmp_anon = caminho_edits_anon + f".{uuid.uuid4().hex}.tmp"  # BUG-M4 CORRIGIDO: uuid importado no topo
     with open(tmp_anon, "w", encoding="utf-8") as f:
         json.dump(edits_anon, f, indent=4, ensure_ascii=False)
     os.replace(tmp_anon, caminho_edits_anon)

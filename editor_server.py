@@ -357,9 +357,10 @@ def setup_routes():
 
     @app.route('/api/track_open', methods=['POST'])
     def track_open():
-        edits = load_edits()
-        edits['last_opened'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
-        save_edits(edits)
+        with _EDIT_LOCK:  # BUG-C1: faltava Lock — race condition ao abrir múltiplas abas
+            edits = load_edits()
+            edits['last_opened'] = datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+            save_edits(edits)
         return jsonify({"success": True})
 
     # ================= ROTAS DE ANONIMIZAÇÃO INTERATIVA =================

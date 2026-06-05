@@ -1,10 +1,26 @@
 import os
 import json
 import csv
+from pathlib import Path
 import utils
 import step4
 
-ARQUIVO_STOPLIST = "ner_stoplist.csv"
+# Raiz do projeto (mesmo diretório deste arquivo) — âncora para todos os paths relativos
+_BASE_DIR = Path(__file__).parent
+
+ARQUIVO_STOPLIST = str(_BASE_DIR / "ner_stoplist.csv")
+
+
+def _atomic_json_write(caminho, dados):
+    """Escreve dados JSON de forma atômica: grava em .tmp e substitui o original.
+    
+    Garante que o arquivo nunca fica corrompido por interrupções durante a escrita.
+    Compartilhado por todas as funções save_* deste módulo.
+    """
+    tmp = str(caminho) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(dados, f, indent=4, ensure_ascii=False)
+    os.replace(tmp, str(caminho))
 
 def load_categorias_globais():
     caminho = "categorias_personas.json"
@@ -27,8 +43,8 @@ def load_categorias_globais():
         return {}
 
 def save_categorias_globais(categorias):
-    with open("categorias_personas.json", "w", encoding="utf-8") as f:
-        json.dump(categorias, f, indent=4, ensure_ascii=False)
+    # BUG-C2 CORRIGIDO: escrita atômica
+    _atomic_json_write(_BASE_DIR / "categorias_personas.json", categorias)
 
 def load_categorias_traits():
     caminho = "categorias_traits.json"
@@ -49,8 +65,8 @@ def load_categorias_traits():
         return {}
 
 def save_categorias_traits(categorias):
-    with open("categorias_traits.json", "w", encoding="utf-8") as f:
-        json.dump(categorias, f, indent=4, ensure_ascii=False)
+    # BUG-C2 CORRIGIDO: escrita atômica
+    _atomic_json_write(_BASE_DIR / "categorias_traits.json", categorias)
 
 def load_dicionario_traits_global():
     caminho = "dicionario_traits_global.json"
@@ -70,8 +86,8 @@ def load_dicionario_traits_global():
         return {"next_id": 1, "termos": {}}
 
 def save_dicionario_traits_global(dicionario):
-    with open("dicionario_traits_global.json", "w", encoding="utf-8") as f:
-        json.dump(dicionario, f, indent=4, ensure_ascii=False)
+    # BUG-C2 CORRIGIDO: escrita atômica
+    _atomic_json_write(_BASE_DIR / "dicionario_traits_global.json", dicionario)
 
 def registrar_trait_global(termo_original, categoria_str):
     """
@@ -124,11 +140,14 @@ def load_stoplist():
         return [row[0] for row in reader if row]
 
 def save_stoplist(stoplist):
-    with open(ARQUIVO_STOPLIST, "w", encoding="utf-8", newline='') as f:
+    # BUG-C2 CORRIGIDO: escrita atômica via arquivo temporário
+    tmp = ARQUIVO_STOPLIST + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline='') as f:
         writer = csv.writer(f)
         writer.writerow(["palavra"])
         for p in stoplist:
             writer.writerow([p])
+    os.replace(tmp, ARQUIVO_STOPLIST)
 
 def load_stoplist_local(pasta_cliente):
     arquivo = os.path.join(pasta_cliente, "stoplist_local.json")
@@ -156,9 +175,8 @@ def load_personas(pasta_cliente):
         return {}
 
 def save_personas(pasta_cliente, personas):
-    arquivo = os.path.join(pasta_cliente, "personas.json")
-    with open(arquivo, "w", encoding="utf-8") as f:
-        json.dump(personas, f, indent=4, ensure_ascii=False)
+    # BUG-C2 CORRIGIDO: escrita atômica
+    _atomic_json_write(Path(pasta_cliente) / "personas.json", personas)
 
 def gerenciar_stoplist():
     while True:
