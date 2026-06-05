@@ -20,12 +20,50 @@ O sistema foi projetado para o fluxo real de trabalho de um profissional que ate
 
 ### 🎙️ Step 1 — Transcrição de Áudio de Alta Precisão
 
+#### Painel de Pré-Análise (antes de transcrever)
+
+Ao iniciar o Step 1, o sistema usa `ffprobe` em paralelo para calcular a duração total dos áudios pendentes e exibe um painel informativo **antes** de qualquer processamento:
+
+```
+====================================================
+     ETAPA 1 | ANÁLISE DE ÁUDIOS
+====================================================
+  📦 Total de áudios encontrados : 47
+  ✅ Já transcritos              : 32
+  ⏳ Pendentes                   : 15
+
+  🎵 Duração total (pendentes)   : 2h 18min
+  ⏱️  Estimativa (large-v3-turbo) : ~3h 13min
+     ↳ 3 processos paralelos — pode ser até 3x menor
+====================================================
+
+  [Enter]  Transcrever TUDO que ainda não foi transcrito
+  [S]      Selecionar por sessão/data específica
+  [C]      Cancelar
+```
+
+#### Seletor de Sessão por Data (`[S]`)
+
+Permite transcrever apenas os áudios de **uma ou mais datas específicas** — essencial quando um cliente liga com urgência e você precisa revisar só a última consulta:
+
+```
+  #    Data           Áudios     Dur. Áudio      Proc. Estimado
+  [0]  29/04/2026     8 áudios   45min           ~63min
+  [1]  22/01/2026     5 áudios   28min           ~39min
+  [2]  13/12/2025     12 áudios  71min           ~99min
+
+  Sua escolha: 0,1   ← seleção múltipla separada por vírgula
+```
+
+Após transcrever uma sessão específica, o sistema oferece gerar o HTML de conferência imediatamente.
+
 - Converte automaticamente os áudios exportados (`.opus`, `.ogg`, `.m4a`, `.mp4`, `.wav`, `.mp3`) para texto usando o modelo **Whisper large-v3**.
 - **Paralelismo otimizado:** `N` arquivos são transcritos simultaneamente, cada instância do modelo recebe `cpu_count / N` threads — garantindo **100% de utilização** dos núcleos disponíveis.
 - **I/O em paralelo com inferência:** `num_workers=2` pré-carrega e decodifica o próximo áudio enquanto o modelo ainda está processando o atual.
 - Retomável: arquivos já transcritos são pulados automaticamente, protegendo o trabalho feito.
 - Configurável via `config.py`: modelo, `beam_size`, `initial_prompt` e nível de paralelismo.
 - **Gerenciamento ativo de memória:** o modelo (~3 GB de RAM) é descarregado automaticamente da memória quando o usuário avança para os passos 2, 3 ou o Editor Visual, devolvendo recursos ao sistema imediatamente.
+- **Atualização automática de sessões:** ao final de cada transcrição, o `cliente_info.json` é atualizado com as datas detectadas nos nomes dos arquivos. Novas datas são adicionadas com `tipo: null` (não classificadas), preservando classificações já feitas.
 
 #### Estratégia Anti-Alucinação (4 camadas)
 
@@ -280,7 +318,8 @@ trans-crypt/
   "data_nascimento": "15/03/1985",
   "tags_origem": ["lead", "fr"],
   "metricas": {
-    "num_consultas": 0,
+    "num_consultas": 2,
+    "num_feedbacks": 1,
     "mensagens_por_autor": {
       "Consulente Marcelo Rubem Paiva": 142,
       "Terapeuta": 310
@@ -291,12 +330,20 @@ trans-crypt/
     },
     "tempo_audio_minutos": 0
   },
+  "sessoes": {
+    "29/04/2026": { "tipo": "atendimento", "unificada_com": null },
+    "22/01/2026": { "tipo": "feedback",    "unificada_com": null },
+    "13/12/2025": { "tipo": null,          "unificada_com": null }
+  },
   "esoterico": {
     "signo": null,
     "arcano": null
   }
 }
 ```
+
+> `num_consultas` e `num_feedbacks` são **calculados automaticamente** a partir das classificações em `sessoes` ao final de cada execução do Step 1. O campo `tipo` pode ser `"atendimento"`, `"feedback"` ou `null` (não classificado). O campo `unificada_com` é reservado para quando duas sessões de datas diferentes forem manualmente mescladas (ex: consulta que passa da meia-noite).
+
 
 ### Estrutura do `conferencia_edits.json`
 
@@ -454,6 +501,7 @@ python3 benchmark.py
 | `WHISPER_BEAM_SIZE` | `5` | Qualidade de busca (1=rápido, 5=padrão ouro, 7+=ganho mínimo) |
 | `WHISPER_INITIAL_PROMPT` | `""` | Prompt de domínio em linguagem natural para ancorar vocabulário específico |
 | `WHISPER_NUM_WORKERS` | `2` | Workers de pré-processamento de áudio (I/O em paralelo com a inferência) |
+| `WHISPER_RTF` | `{...}` | RTF real por modelo (medido em benchmark) — usado para estimar tempo no Step 1 |
 | `PROCESSAMENTO_PARALELO_ARQUIVOS` | `cpu_count // 2` | Instâncias simultâneas do modelo (cada uma recebe `cpu_count / N` threads) |
 | `REMETENTES_DIREITA` | `("Alex", "VIP", "Xan", ...)` | Nomes que aparecem alinhados à direita no chat visual |
 | `EXTENSOES_AUDIO` | `.opus .ogg .m4a .mp4 .wav .mp3` | Formatos suportados para transcrição |
