@@ -349,10 +349,12 @@ def process_zips(base_dir="clientes"):
                 "tags_origem": info_atual["tags_origem"],
                 "metricas": {
                     "num_consultas": 0,
+                    "num_feedbacks": 0,
                     "mensagens_por_autor": autor_mensagens,
                     "audios_por_autor": autor_audios,
                     "tempo_audio_minutos": 0
                 },
+                "sessoes": {},
                 "esoterico": {
                     "signo": None,
                     "arcano": None
@@ -376,7 +378,11 @@ def process_zips(base_dir="clientes"):
                         json_existente["metricas"] = {}
                     json_existente["metricas"]["mensagens_por_autor"] = autor_mensagens
                     json_existente["metricas"]["audios_por_autor"] = autor_audios
-                    
+                    # Garante que num_feedbacks existe (migração de JSONs antigos)
+                    json_existente["metricas"].setdefault("num_feedbacks", 0)
+                    # Preserva sessoes existentes (classificações manuais do usuário)
+                    json_existente.setdefault("sessoes", {})
+
                     dados = json_existente
                 except Exception as e:
                     print(f"  ⚠️  Erro ao ler cliente_info.json: {e}. Sobrescrevendo.")

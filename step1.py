@@ -438,6 +438,94 @@ def _oferecer_geracao_html(pasta_cliente):
         print("\n✅ Pronto! Use a opção [6] do menu para abrir o editor visual.")
 
 
+def _atualizar_sessoes_no_json(pasta_cliente):
+    """Atualiza o cliente_info.json com as sessões descobertas pelos áudios.
+
+    Descobre todas as datas únicas de áudio na pasta (pelo padrão PTT-YYYYMMDD-
+    no nome do arquivo), adiciona datas novas ao campo `sessoes` preservando
+    classificações existentes (tipo 'atendimento'/'feedback'), e recalcula
+    automaticamente `num_consultas` e `num_feedbacks` a partir dessas classificações.
+
+    Usa escrita atômica (os.replace) para garantir que o JSON não seja
+    corrompido por interrupções durante a gravação.
+
+    Args:
+        pasta_cliente (str): Caminho da pasta do cliente.
+    """
+    import json
+
+    caminho_json = os.path.join(pasta_cliente, "cliente_info.json")
+    if not os.path.exists(caminho_json):
+        return  # sem cliente_info.json (cliente criado manualmente), nada a fazer
+
+    # Descobre todas as datas dos áudios na pasta (transcritos ou não)
+    todos_audios = [
+        f for f in os.listdir(pasta_cliente)
+        if f.lower().endswith(config.EXTENSOES_AUDIO) and not f.endswith(".temp.wav")
+    ]
+
+    datas_encontradas = set()
+    for audio in todos_audios:
+        data = _extrair_data_do_nome(audio)
+        if data != "Data desconhecida":
+            datas_encontradas.add(data)
+
+    if not datas_encontradas:
+        return
+
+    try:
+        with open(caminho_json, 'r', encoding='utf-8') as f:
+            dados = json.load(f)
+    except Exception as e:
+        print(f"  ⚠️  Não foi possível ler cliente_info.json para atualizar sessões: {e}")
+        return
+
+    # Garante que os campos existem (migração de JSONs antigos sem esses campos)
+    dados.setdefault("sessoes", {})
+    dados.setdefault("metricas", {})
+    dados["metricas"].setdefault("num_consultas", 0)
+    dados["metricas"].setdefault("num_feedbacks", 0)
+
+    sessoes = dados["sessoes"]
+
+    # Adiciona datas novas sem sobrescrever classificações já feitas pelo usuário
+    novas = 0
+    for data in datas_encontradas:
+        if data not in sessoes:
+            sessoes[data] = {"tipo": None, "unificada_com": None}
+            novas += 1
+
+    # Ordena por data decrescente (mais recente primeiro) para leitura fácil
+    def _sort_data(d):
+        try:
+            dia, mes, ano = d.split('/')
+            return (int(ano), int(mes), int(dia))
+        except Exception:
+            return (0, 0, 0)
+
+    dados["sessoes"] = dict(
+        sorted(sessoes.items(), key=lambda x: _sort_data(x[0]), reverse=True)
+    )
+
+    # Recalcula contadores a partir das classificações existentes
+    dados["metricas"]["num_consultas"] = sum(
+        1 for s in dados["sessoes"].values() if s.get("tipo") == "atendimento"
+    )
+    dados["metricas"]["num_feedbacks"] = sum(
+        1 for s in dados["sessoes"].values() if s.get("tipo") == "feedback"
+    )
+
+    # Escrita atômica: escreve em .tmp e só depois substitui o original
+    tmp = caminho_json + ".tmp"
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(dados, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, caminho_json)
+
+    total = len(dados["sessoes"])
+    nao_class = sum(1 for s in dados["sessoes"].values() if s.get("tipo") is None)
+    print(f"  ➜ cliente_info.json: {total} sessão(ões) detectadas ({novas} nova(s)), {nao_class} ainda não classificadas.")
+
+
 # ================= PIPELINE PRINCIPAL =================
 
 def run(pasta_cliente=None, interativo=True):
@@ -597,6 +685,9 @@ def run(pasta_cliente=None, interativo=True):
         print("\n💡 Dica: Rode o Passo 1 novamente para transcrever apenas os que faltam.")
 
     print("=" * 45)
+
+    # Atualiza sessões descobertas no cliente_info.json (todas as datas com áudio)
+    _atualizar_sessoes_no_json(pasta_cliente)
 
     # Oferece geração de HTML apenas no modo interativo (standalone)
     if interativo:
